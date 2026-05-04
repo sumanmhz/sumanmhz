@@ -1,13 +1,3 @@
-NetBox version
-v4.4.4
-
-Feature type
-Other
-
-Proposed functionality
-A simple install script for linux.
-Tested on a fresh VM Ubuntu 24.03 and Debian 12.12
-
 #!/bin/bash
 set -e
 
