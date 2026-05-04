@@ -1,0 +1,230 @@
+NetBox version
+v4.4.4
+
+Feature type
+Other
+
+Proposed functionality
+A simple install script for linux.
+Tested on a fresh VM Ubuntu 24.03 and Debian 12.12
+
+#!/bin/bash
+set -e
+
+if [ "$EUID" -ne 0 ]; then 
+    echo "Error: Please run this script with sudo"
+    echo "Usage: sudo ./install_netbox.sh"
+    exit 1
+fi
+
+wait_for_apt_lock() {
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 ; do
+        echo "Waiting for other apt/dpkg processes to finish..."
+        sleep 2
+    done
+}
+
+NETBOX_DIR="/opt/netbox"
+NETBOX_USER="netbox"
+NETBOX_DB="netbox"
+NETBOX_DB_PASSWORD=$(openssl rand -base64 32)
+ADMIN_USER="admin"
+ADMIN_PASSWORD="admin"
+ADMIN_EMAIL="admin@example.com"
+NGINX_PORT="80"
+GUNICORN_PORT="8001"
+INSTALL_USER=${SUDO_USER:-$USER}
+
+echo "=== NetBox Installation Script ==="
+echo "This script will install NetBox on Debian/Ubuntu systems"
+echo ""
+
+echo "Step 1: Checking system..."
+echo "OS: $(lsb_release -d | cut -f2)"
+echo "Python: $(python3 --version)"
+echo ""
+
+echo "Step 2: Installing PostgreSQL..."
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql postgresql-contrib
+systemctl start postgresql
+systemctl enable postgresql
+
+echo "Step 3: Creating database and user..."
+su - postgres -c "psql -c \"DROP DATABASE IF EXISTS $NETBOX_DB;\""
+su - postgres -c "psql -c \"DROP USER IF EXISTS $NETBOX_USER;\""
+su - postgres -c "psql -c \"CREATE DATABASE $NETBOX_DB;\""
+su - postgres -c "psql -c \"CREATE USER $NETBOX_USER WITH PASSWORD '$NETBOX_DB_PASSWORD';\""
+su - postgres -c "psql -c \"ALTER DATABASE $NETBOX_DB OWNER TO $NETBOX_USER;\""
+su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE $NETBOX_DB TO $NETBOX_USER;\""
+su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON SCHEMA public TO $NETBOX_USER;\""
+
+echo "Step 4: Installing Redis..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y redis-server
+systemctl start redis-server
+systemctl enable redis-server
+
+echo "Step 5: Installing system dependencies..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip python3-venv python3-dev build-essential \
+    libxml2-dev libxslt1-dev libffi-dev libpq-dev libssl-dev zlib1g-dev
+
+echo "Step 6: Setting up NetBox directory..."
+rm -rf $NETBOX_DIR
+mkdir -p $NETBOX_DIR
+chown $INSTALL_USER:$INSTALL_USER $NETBOX_DIR
+
+echo "Step 7: Downloading NetBox..."
+cd $NETBOX_DIR
+su - $INSTALL_USER -c "cd $NETBOX_DIR && wget -q https://github.com/netbox-community/netbox/archive/refs/heads/master.tar.gz"
+tar -xzf master.tar.gz --strip-components=1
+rm master.tar.gz
+chown -R $INSTALL_USER:$INSTALL_USER $NETBOX_DIR
+
+echo "Step 8: Creating Python virtual environment... (long step, up to 5mn)"
+su - $INSTALL_USER -c "cd $NETBOX_DIR && python3 -m venv venv"
+su - $INSTALL_USER -c "cd $NETBOX_DIR && source venv/bin/activate && pip install wheel && pip install -q -r requirements.txt"
+
+echo "Step 9: Configuring NetBox..."
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(50))")
+SERVER_FQDN=$(hostname -f)
+SERVER_IP=$(hostname -I | awk '{print $1}')
+LOCAL_NETWORK=$(ip route | grep -oP '(?<=src )[\d.]+' | head -1 | awk -F. '{print $1"."$2"."$3".0/24"}')
+
+cat > netbox/netbox/configuration.py << EOF
+ALLOWED_HOSTS = ['$SERVER_FQDN', '$SERVER_IP', 'localhost', '127.0.0.1', '$LOCAL_NETWORK']
+
+DATABASE = {
+    'ENGINE': 'django.db.backends.postgresql',
+    'NAME': '$NETBOX_DB',
+    'USER': '$NETBOX_USER',
+    'PASSWORD': '$NETBOX_DB_PASSWORD',
+    'HOST': 'localhost',
+    'PORT': '',
+    'CONN_MAX_AGE': 300,
+}
+
+REDIS = {
+    'tasks': {
+        'HOST': 'localhost',
+        'PORT': 6379,
+        'PASSWORD': '',
+        'DATABASE': 0,
+        'SSL': False,
+    },
+    'caching': {
+        'HOST': 'localhost',
+        'PORT': 6379,
+        'PASSWORD': '',
+        'DATABASE': 1,
+        'SSL': False,
+    }
+}
+
+SECRET_KEY = '$SECRET_KEY'
+EOF
+
+echo "Step 10: Running database migrations..."
+su - $INSTALL_USER -c "cd $NETBOX_DIR && source venv/bin/activate && cd netbox && python manage.py migrate"
+
+echo "Step 11: Creating superuser..."
+su - $INSTALL_USER -c "cd $NETBOX_DIR && source venv/bin/activate && cd netbox && echo \"from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.create_superuser('$ADMIN_USER', '$ADMIN_EMAIL', '$ADMIN_PASSWORD')\" | python manage.py shell"
+
+echo "Step 12: Collecting static files..."
+su - $INSTALL_USER -c "cd $NETBOX_DIR && source venv/bin/activate && cd netbox && python manage.py collectstatic --no-input"
+
+echo "Step 13: Creating Gunicorn configuration..."
+cat > $NETBOX_DIR/gunicorn.conf.py << EOF
+command = '/opt/netbox/venv/bin/gunicorn'
+pythonpath = '/opt/netbox/netbox'
+bind = '127.0.0.1:$GUNICORN_PORT'
+workers = 5
+threads = 3
+timeout = 120
+max_requests = 5000
+max_requests_jitter = 500
+user = '$INSTALL_USER'
+EOF
+
+echo "Step 14: Creating systemd service..."
+tee /etc/systemd/system/netbox.service > /dev/null << EOF
+[Unit]
+Description=NetBox WSGI Service
+Documentation=https://netboxlabs.com/docs/netbox/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=$INSTALL_USER
+Group=$INSTALL_USER
+PIDFile=/opt/netbox/netbox.pid
+WorkingDirectory=/opt/netbox
+ExecStart=/opt/netbox/venv/bin/gunicorn --pid /opt/netbox/netbox.pid --pythonpath /opt/netbox/netbox --config /opt/netbox/gunicorn.conf.py netbox.wsgi
+ExecReload=/bin/kill -s HUP \$MAINPID
+TimeoutStartSec=300
+KillMode=mixed
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl start netbox
+systemctl enable netbox
+
+echo "Step 15: Installing and configuring Nginx..."
+wait_for_apt_lock
+DEBIAN_FRONTEND=noninteractive apt-get install -y nginx
+
+tee /etc/nginx/sites-available/netbox > /dev/null << EOF
+server {
+    listen $NGINX_PORT;
+    listen [::]:$NGINX_PORT;
+
+    server_name $SERVER_FQDN $SERVER_IP localhost;
+
+    client_max_body_size 25m;
+
+    location /static/ {
+        alias /opt/netbox/netbox/static/;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:$GUNICORN_PORT;
+        proxy_set_header X-Forwarded-Host \$http_host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+
+ln -sf /etc/nginx/sites-available/netbox /etc/nginx/sites-enabled/
+rm -f /etc/nginx/sites-enabled/default
+nginx -t
+systemctl restart nginx
+systemctl enable nginx
+
+echo "Services status:"
+systemctl status netbox --no-pager -l
+systemctl status nginx --no-pager -l
+
+echo ""
+echo "=== Installation Complete! ==="
+echo ""
+echo "NetBox is now running at: http://$SERVER_FQDN"
+echo ""
+echo "Login credentials:"
+echo "  Username: $ADMIN_USER"
+echo "  Password: $ADMIN_PASSWORD"
+echo ""
+echo "Database credentials (save these!):"
+echo "  Database: $NETBOX_DB"
+echo "  User: $NETBOX_USER"
+echo "  Password: $NETBOX_DB_PASSWORD"
+echo ""
+echo "Network configuration:"
+echo "  FQDN: $SERVER_FQDN"
+echo "  IP: $SERVER_IP"
+echo "  Local Network: $LOCAL_NETWORK"
+echo ""
