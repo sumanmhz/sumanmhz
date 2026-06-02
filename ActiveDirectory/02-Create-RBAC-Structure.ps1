@@ -99,9 +99,9 @@ $GroupOU = "OU=EMIS Groups,$Domain"
 
 # â”€â”€ Role-Based Groups (what permissions you get) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $RoleGroups = @(
-    @{ Name="Role-SuperAdmin";  Desc="Full domain administration â€” IT, Finance, HR, Management" },
-    @{ Name="Role-Teacher";     Desc="Teaching and academic staff â€” Faculty, Library, Research, Engineering" },
-    @{ Name="Role-Students";    Desc="Student access â€” labs, library, portal" }
+    @{ Name="Role-SuperAdmin";  Desc="Full domain administration - IT, Finance, HR, Management" },
+    @{ Name="Role-Teacher";     Desc="Teaching and academic staff - Faculty, Library, Research, Engineering" },
+    @{ Name="Role-Students";    Desc="Student access - labs, library, portal" }
 )
 
 foreach ($grp in $RoleGroups) {
