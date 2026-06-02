@@ -1,4 +1,4 @@
-﻿# ================================================================
+# ================================================================
 # Step 2: Create OU Structure and RBAC Security Groups
 # Run AFTER server reboots from Step 1
 # Run as Domain Admin on the Domain Controller
@@ -15,9 +15,9 @@ Write-Host " Domain: $DomainDNS"
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 # STEP 1: Create Organizational Units (OUs)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 Write-Host "Creating Organizational Units..." -ForegroundColor Yellow
 
 # Top-level OUs
@@ -90,14 +90,14 @@ foreach ($prog in $Programs) {
 
 Write-Host ""
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 # STEP 2: Create RBAC Security Groups
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 Write-Host "Creating RBAC Security Groups..." -ForegroundColor Yellow
 
 $GroupOU = "OU=EMIS Groups,$Domain"
 
-# â”€â”€ Role-Based Groups (what permissions you get) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# - Role-Based Groups (what permissions you get) -
 $RoleGroups = @(
     @{ Name="Role-SuperAdmin";  Desc="Full domain administration - IT, Finance, HR, Management" },
     @{ Name="Role-Teacher";     Desc="Teaching and academic staff - Faculty, Library, Research, Engineering" },
@@ -114,7 +114,7 @@ foreach ($grp in $RoleGroups) {
     }
 }
 
-# â”€â”€ Resource-Based Groups (what you can access) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# - Resource-Based Groups (what you can access) -
 # NOTE: All roles get the same daily-use resources (files, printers, WiFi,
 #       internet, email, LMS, lab PCs). Only infrastructure access
 #       (ServerRoom, VPN, ERP) is limited to admin/staff roles.
@@ -144,9 +144,9 @@ foreach ($grp in $ResourceGroups) {
 
 Write-Host ""
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-# STEP 3: Map Roles â†’ Resource Access (RBAC nesting)
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
+# STEP 3: Map Roles - Resource Access (RBAC nesting)
+# -
 Write-Host "Mapping RBAC role-to-resource permissions..." -ForegroundColor Yellow
 
 $RoleMappings = @{
@@ -189,9 +189,9 @@ try {
 
 Write-Host ""
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 # STEP 4: Create Group Policy Objects (GPOs) for RBAC
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 Write-Host "Creating Group Policy Objects..." -ForegroundColor Yellow
 
 $GPOs = @(
@@ -228,9 +228,9 @@ foreach ($link in $GPOLinks) {
 
 Write-Host ""
 
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 # STEP 5: Set Password Policy
-# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# -
 Write-Host "Configuring domain password policy..." -ForegroundColor Yellow
 
 Set-ADDefaultDomainPasswordPolicy -Identity $DomainDNS `
@@ -245,7 +245,7 @@ Set-ADDefaultDomainPasswordPolicy -Identity $DomainDNS `
 
 Write-Host "  Password policy applied." -ForegroundColor Green
 
-# â”€â”€ Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# - Summary -
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " RBAC Structure Created Successfully!"
