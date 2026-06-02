@@ -1,4 +1,4 @@
-# ================================================================
+﻿# ================================================================
 # Step 4: Lab & User Management REST API
 # Controls AD users + Lab PCs via WinRM (PowerShell Remoting)
 # Requires: Pode module, ActiveDirectory module, WinRM enabled on lab PCs
@@ -11,55 +11,55 @@
 #   .\04-AD-User-API.ps1 -HttpOnly -Port 8080        # HTTP (dev only)
 # ================================================================
 # ROLES (3 only):
-#   superadmin — Full control: users, PCs, software, all labs
-#   teacher    — Monitor ANY lab, view students, reset student passwords
-#   student    — Change own password only
+#   superadmin â€” Full control: users, PCs, software, all labs
+#   teacher    â€” Monitor ANY lab, view students, reset student passwords
+#   student    â€” Change own password only
 # ================================================================
 # ENDPOINTS:
 #   --- Health ---
 #   GET    /api/v1/health
 #
 #   --- Auth ---
-#   POST   /api/v1/auth/login                     — AD login → returns API key + role
-#   GET    /api/v1/auth/me                         — Who am I (from key)
+#   POST   /api/v1/auth/login                     â€” AD login â†’ returns API key + role
+#   GET    /api/v1/auth/me                         â€” Who am I (from key)
 #
 #   --- Dashboard ---
-#   GET    /api/v1/dashboard                       — Aggregate stats (users, labs, PCs)
+#   GET    /api/v1/dashboard                       â€” Aggregate stats (users, labs, PCs)
 #
 #   --- Users (superadmin) ---
-#   GET    /api/v1/users                          — List/search users
-#   POST   /api/v1/users                          — Create user
-#   POST   /api/v1/users/bulk                     — Bulk create users
-#   DELETE /api/v1/users/:username                 — Disable user
-#   DELETE /api/v1/users/batch/:batch              — Disable entire batch
-#   DELETE /api/v1/users/faculty/:program          — Disable entire program
+#   GET    /api/v1/users                          â€” List/search users
+#   POST   /api/v1/users                          â€” Create user
+#   POST   /api/v1/users/bulk                     â€” Bulk create users
+#   DELETE /api/v1/users/:username                 â€” Disable user
+#   DELETE /api/v1/users/batch/:batch              â€” Disable entire batch
+#   DELETE /api/v1/users/faculty/:program          â€” Disable entire program
 #
 #   --- Password ---
-#   PUT    /api/v1/users/:username/password        — Change password (student: own only)
-#   POST   /api/v1/users/:username/reset           — Admin/teacher reset password
+#   PUT    /api/v1/users/:username/password        â€” Change password (student: own only)
+#   POST   /api/v1/users/:username/reset           â€” Admin/teacher reset password
 #
 #   --- Labs (superadmin + teacher) ---
-#   GET    /api/v1/labs                            — List all labs
-#   GET    /api/v1/labs/:lab                       — Lab detail + PC status
-#   GET    /api/v1/labs/:lab/monitor               — Live: who's logged in, processes
+#   GET    /api/v1/labs                            â€” List all labs
+#   GET    /api/v1/labs/:lab                       â€” Lab detail + PC status
+#   GET    /api/v1/labs/:lab/monitor               â€” Live: who's logged in, processes
 #
 #   --- PC Management (superadmin) ---
-#   POST   /api/v1/pcs/:hostname/shutdown          — Shutdown a PC
-#   POST   /api/v1/pcs/:hostname/restart           — Restart a PC
-#   POST   /api/v1/pcs/:hostname/logoff            — Force logoff
-#   POST   /api/v1/pcs/:hostname/message           — Send popup message
-#   POST   /api/v1/labs/:lab/shutdown-all           — Shutdown all PCs in a lab
-#   POST   /api/v1/labs/:lab/restart-all            — Restart all PCs in a lab
-#   POST   /api/v1/labs/:lab/message-all            — Message all PCs in a lab
+#   POST   /api/v1/pcs/:hostname/shutdown          â€” Shutdown a PC
+#   POST   /api/v1/pcs/:hostname/restart           â€” Restart a PC
+#   POST   /api/v1/pcs/:hostname/logoff            â€” Force logoff
+#   POST   /api/v1/pcs/:hostname/message           â€” Send popup message
+#   POST   /api/v1/labs/:lab/shutdown-all           â€” Shutdown all PCs in a lab
+#   POST   /api/v1/labs/:lab/restart-all            â€” Restart all PCs in a lab
+#   POST   /api/v1/labs/:lab/message-all            â€” Message all PCs in a lab
 #
 #   --- Software (superadmin) ---
-#   POST   /api/v1/pcs/:hostname/install            — Install software on a PC
-#   POST   /api/v1/labs/:lab/install                 — Install software on all PCs in lab
-#   GET    /api/v1/pcs/:hostname/software            — List installed software
+#   POST   /api/v1/pcs/:hostname/install            â€” Install software on a PC
+#   POST   /api/v1/labs/:lab/install                 â€” Install software on all PCs in lab
+#   GET    /api/v1/pcs/:hostname/software            â€” List installed software
 #
 #   --- Web Dashboard ---
-#   GET    /                                        — Redirects to /web/
-#   GET    /web/*                                   — Serves static dashboard files
+#   GET    /                                        â€” Redirects to /web/
+#   GET    /web/*                                   â€” Serves static dashboard files
 # ================================================================
 
 param(
@@ -69,7 +69,7 @@ param(
     [int]$Threads = 16
 )
 
-# ── Install Pode if missing ──────────────────────────────────────────
+# â”€â”€ Install Pode if missing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if (-not (Get-Module -ListAvailable -Name Pode)) {
     Write-Host "Installing Pode module..." -ForegroundColor Yellow
     Install-Module -Name Pode -Force -AllowClobber -Scope CurrentUser
@@ -82,7 +82,7 @@ $ConfigDir = $PSScriptRoot
 $KeyFile   = Join-Path $ConfigDir "api-keys.json"
 $LabFile   = Join-Path $ConfigDir "labs.json"
 
-# ── Generate Service Key ─────────────────────────────────────────────
+# â”€â”€ Generate Service Key â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function New-ServiceKey {
     $bytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
@@ -94,9 +94,9 @@ if ($GenerateKey) {
 
     Write-Host ""
     Write-Host "Select role:" -ForegroundColor Yellow
-    Write-Host "  1) superadmin — Full control"
-    Write-Host "  2) teacher    — Monitor any lab, reset student passwords"
-    Write-Host "  3) student    — Change own password only"
+    Write-Host "  1) superadmin â€” Full control"
+    Write-Host "  2) teacher    â€” Monitor any lab, reset student passwords"
+    Write-Host "  3) student    â€” Change own password only"
     $roleChoice = Read-Host "Role (1/2/3)"
     $role = switch ($roleChoice) {
         "1" { "superadmin" }
@@ -140,7 +140,7 @@ if ($GenerateKey) {
     exit 0
 }
 
-# ── Verify configs exist ─────────────────────────────────────────────
+# â”€â”€ Verify configs exist â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if (-not (Test-Path $KeyFile)) {
     Write-Host "ERROR: No API keys configured." -ForegroundColor Red
     Write-Host "  Run: .\04-AD-User-API.ps1 -GenerateKey" -ForegroundColor Yellow
@@ -178,12 +178,12 @@ if (-not (Test-Path $LabFile)) {
     Write-Host ""
 }
 
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # START PODE SERVER
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 Start-PodeServer -Threads $Threads {
 
-    # ── Server Config ────────────────────────────────────────────────
+    # â”€â”€ Server Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if ($using:HttpOnly) {
         Add-PodeEndpoint -Address * -Port $using:Port -Protocol Http
     } else {
@@ -193,13 +193,13 @@ Start-PodeServer -Threads $Threads {
     New-PodeLoggingMethod -Terminal | Enable-PodeRequestLogging
     New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging
 
-    # ── Serve static dashboard files ─────────────────────────────────
+    # â”€â”€ Serve static dashboard files â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $webDir = Join-Path $using:ConfigDir "web"
     if (Test-Path $webDir) {
         Add-PodeStaticRoute -Path '/web' -Source $webDir -Defaults @('index.html')
     }
 
-    # ── Root redirect to dashboard ───────────────────────────────────
+    # â”€â”€ Root redirect to dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/' -ScriptBlock {
         Move-PodeResponseUrl -Url '/web/'
     }
@@ -207,7 +207,7 @@ Start-PodeServer -Threads $Threads {
     # Rate limit: 100 req/min per IP
     Add-PodeLimitRule -Type IP -Values * -Limit 100 -Seconds 60
 
-    # ── Load Config ──────────────────────────────────────────────────
+    # â”€â”€ Load Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $script:ADDomain    = (Get-ADDomain).DistinguishedName
     $script:ADDomainDNS = (Get-ADDomain).DNSRoot
     $script:KeyFilePath = $using:KeyFile
@@ -230,7 +230,7 @@ Start-PodeServer -Threads $Threads {
         "Management"      = "Role-SuperAdmin"
     }
 
-    # ── Helper: Load labs from JSON ──────────────────────────────────
+    # â”€â”€ Helper: Load labs from JSON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function Get-Labs {
         @(Get-Content $script:LabFilePath -Raw | ConvertFrom-Json)
     }
@@ -241,18 +241,18 @@ Start-PodeServer -Threads $Threads {
         $labs | Where-Object { $_.Name -eq $Name }
     }
 
-    # ── Helper: Resolve target OU ────────────────────────────────────
+    # â”€â”€ Helper: Resolve target OU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function Get-UserOU {
         param([string]$Department, [string]$Batch, [string]$Program)
-        $base = "OU=TCIOE Users,$($script:ADDomain)"
+        $base = "OU=EMIS Users,$($script:ADDomain)"
         if ($Department -eq "Students" -and $Batch) { return "OU=$Batch,OU=Students,$base" }
         if ($Department -eq "Faculty" -and $Program) { return "OU=$Program,OU=Faculty,$base" }
         return "OU=$Department,$base"
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     # MIDDLEWARE: API Key Auth + Role Check
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     Add-PodeMiddleware -Name 'ApiKeyAuth' -ScriptBlock {
         if ($WebEvent.Path -eq '/api/v1/health') { return $true }
         if ($WebEvent.Path -eq '/api/v1/auth/login') { return $true }
@@ -281,7 +281,7 @@ Start-PodeServer -Threads $Threads {
         return $true
     }
 
-    # ── Role check helper ────────────────────────────────────────────
+    # â”€â”€ Role check helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function Assert-Role {
         param([string[]]$Allowed)
         $role = $WebEvent.Data['_role']
@@ -294,9 +294,9 @@ Start-PodeServer -Threads $Threads {
         return $false
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #                         HEALTH CHECK
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     Add-PodeRoute -Method Get -Path '/api/v1/health' -ScriptBlock {
         try {
             $dc = Get-ADDomainController -Discover
@@ -314,11 +314,11 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #                    AUTH & DASHBOARD
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    # ── POST /api/v1/auth/login — AD credential login ────────────────
+    # â”€â”€ POST /api/v1/auth/login â€” AD credential login â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/auth/login' -ScriptBlock {
         $body = $WebEvent.Data
         if ([string]::IsNullOrWhiteSpace($body.username) -or [string]::IsNullOrWhiteSpace($body.password)) {
@@ -387,7 +387,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── GET /api/v1/auth/me — Who am I ───────────────────────────────
+    # â”€â”€ GET /api/v1/auth/me â€” Who am I â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/auth/me' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher", "student"))) { return }
         Write-PodeJsonResponse -Value @{
@@ -397,7 +397,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── GET /api/v1/dashboard — Aggregate stats ──────────────────────
+    # â”€â”€ GET /api/v1/dashboard â€” Aggregate stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/dashboard' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
@@ -429,7 +429,7 @@ Start-PodeServer -Threads $Threads {
 
             # Superadmin gets user counts too
             if ($WebEvent.Data['_role'] -eq 'superadmin') {
-                $base = "OU=TCIOE Users,$($script:ADDomain)"
+                $base = "OU=EMIS Users,$($script:ADDomain)"
                 $totalUsers = (Get-ADUser -SearchBase $base -Filter * | Measure-Object).Count
                 $enabledUsers = (Get-ADUser -SearchBase $base -Filter 'Enabled -eq $true' | Measure-Object).Count
                 $students = (Get-ADUser -SearchBase "OU=Students,$base" -Filter * | Measure-Object).Count
@@ -447,11 +447,11 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #              USER MANAGEMENT (superadmin only)
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    # ── GET /api/v1/users ────────────────────────────────────────────
+    # â”€â”€ GET /api/v1/users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/users' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
@@ -468,7 +468,7 @@ Start-PodeServer -Threads $Threads {
         if ($WebEvent.Data['_role'] -eq 'teacher') { $dept = "Students" }
 
         try {
-            $searchBase = "OU=TCIOE Users,$($script:ADDomain)"
+            $searchBase = "OU=EMIS Users,$($script:ADDomain)"
             if ($dept -eq "Students" -and $batch) {
                 $searchBase = "OU=$batch,OU=Students,$searchBase"
             } elseif ($dept -eq "Faculty" -and $program) {
@@ -516,7 +516,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/users ───────────────────────────────────────────
+    # â”€â”€ POST /api/v1/users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/users' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $body = $WebEvent.Data
@@ -548,7 +548,7 @@ Start-PodeServer -Threads $Threads {
                 return
             }
 
-            $tempPass   = "Tcioe@" + (Get-Random -Minimum 100000 -Maximum 999999)
+            $tempPass   = "Emis@" + (Get-Random -Minimum 100000 -Maximum 999999)
             $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
             $targetOU   = Get-UserOU -Department $body.department -Batch $body.batch -Program $body.program
             $role       = if ($body.role) { $body.role } elseif ($script:RoleMap.ContainsKey($body.department)) { $script:RoleMap[$body.department] } else { $null }
@@ -557,7 +557,7 @@ Start-PodeServer -Threads $Threads {
             New-ADUser -SamAccountName $safeUsername -UserPrincipalName "$safeUsername@$($script:ADDomainDNS)" `
                 -Name "$($body.firstName) $($body.lastName)" -GivenName $body.firstName -Surname $body.lastName `
                 -DisplayName "$($body.firstName) $($body.lastName)" -EmailAddress $email `
-                -Title $body.title -Department $body.department -Office "TCIOE Campus" `
+                -Title $body.title -Department $body.department -Office "EMIS Campus" `
                 -Path $targetOU -AccountPassword $securePass -ChangePasswordAtLogon $true -Enabled $true
 
             if ($role) { Add-ADGroupMember -Identity $role -Members $safeUsername }
@@ -573,7 +573,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/users/bulk ──────────────────────────────────────
+    # â”€â”€ POST /api/v1/users/bulk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/users/bulk' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $userList = $WebEvent.Data.users
@@ -601,7 +601,7 @@ Start-PodeServer -Threads $Threads {
                     $results.skipped += @{ username = $safe; reason = "Already exists" }; continue
                 }
 
-                $tempPass   = "Tcioe@" + (Get-Random -Minimum 100000 -Maximum 999999)
+                $tempPass   = "Emis@" + (Get-Random -Minimum 100000 -Maximum 999999)
                 $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
                 $targetOU   = Get-UserOU -Department $u.department -Batch $u.batch -Program $u.program
                 $role       = if ($u.role) { $u.role } elseif ($script:RoleMap.ContainsKey($u.department)) { $script:RoleMap[$u.department] } else { $null }
@@ -610,7 +610,7 @@ Start-PodeServer -Threads $Threads {
                 New-ADUser -SamAccountName $safe -UserPrincipalName "$safe@$($script:ADDomainDNS)" `
                     -Name "$($u.firstName) $($u.lastName)" -GivenName $u.firstName -Surname $u.lastName `
                     -DisplayName "$($u.firstName) $($u.lastName)" -EmailAddress $email `
-                    -Title $u.title -Department $u.department -Office "TCIOE Campus" `
+                    -Title $u.title -Department $u.department -Office "EMIS Campus" `
                     -Path $targetOU -AccountPassword $securePass -ChangePasswordAtLogon $true -Enabled $true
 
                 if ($role) { Add-ADGroupMember -Identity $role -Members $safe }
@@ -626,7 +626,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── DELETE /api/v1/users/:username ───────────────────────────────
+    # â”€â”€ DELETE /api/v1/users/:username â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Delete -Path '/api/v1/users/:username' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $username = $WebEvent.Parameters['username']
@@ -650,7 +650,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── DELETE /api/v1/users/batch/:batch ────────────────────────────
+    # â”€â”€ DELETE /api/v1/users/batch/:batch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Delete -Path '/api/v1/users/batch/:batch' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $batch = $WebEvent.Parameters['batch']
@@ -660,7 +660,7 @@ Start-PodeServer -Threads $Threads {
             return
         }
         try {
-            $searchBase = "OU=$batch,OU=Students,OU=TCIOE Users,$($script:ADDomain)"
+            $searchBase = "OU=$batch,OU=Students,OU=EMIS Users,$($script:ADDomain)"
             $disabledOU = "OU=Disabled Accounts,$($script:ADDomain)"
             $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf
             $disabled = 0; $errors = @()
@@ -682,7 +682,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── DELETE /api/v1/users/faculty/:program ────────────────────────
+    # â”€â”€ DELETE /api/v1/users/faculty/:program â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Delete -Path '/api/v1/users/faculty/:program' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $program = $WebEvent.Parameters['program']
@@ -692,7 +692,7 @@ Start-PodeServer -Threads $Threads {
             return
         }
         try {
-            $searchBase = "OU=$program,OU=Faculty,OU=TCIOE Users,$($script:ADDomain)"
+            $searchBase = "OU=$program,OU=Faculty,OU=EMIS Users,$($script:ADDomain)"
             $disabledOU = "OU=Disabled Accounts,$($script:ADDomain)"
             $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf
             $disabled = 0; $errors = @()
@@ -714,11 +714,11 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #                    PASSWORD MANAGEMENT
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    # ── PUT /api/v1/users/:username/password — Change own password ───
+    # â”€â”€ PUT /api/v1/users/:username/password â€” Change own password â”€â”€â”€
     Add-PodeRoute -Method Put -Path '/api/v1/users/:username/password' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher", "student"))) { return }
 
@@ -786,7 +786,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/users/:username/reset — Admin/teacher reset ─────
+    # â”€â”€ POST /api/v1/users/:username/reset â€” Admin/teacher reset â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/users/:username/reset' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
@@ -810,7 +810,7 @@ Start-PodeServer -Threads $Threads {
 
         try {
             Get-ADUser -Identity $username -ErrorAction Stop
-            $tempPass   = "Tcioe@" + (Get-Random -Minimum 100000 -Maximum 999999)
+            $tempPass   = "Emis@" + (Get-Random -Minimum 100000 -Maximum 999999)
             $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
             Set-ADAccountPassword -Identity $username -NewPassword $securePass -Reset
             Set-ADUser -Identity $username -ChangePasswordAtLogon $true
@@ -826,11 +826,11 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #                    LAB MANAGEMENT
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    # ── GET /api/v1/labs — List all labs ─────────────────────────────
+    # â”€â”€ GET /api/v1/labs â€” List all labs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/labs' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
@@ -843,7 +843,7 @@ Start-PodeServer -Threads $Threads {
         Write-PodeJsonResponse -Value @{ labs = $results }
     }
 
-    # ── GET /api/v1/labs/:lab — Lab detail with PC online status ─────
+    # â”€â”€ GET /api/v1/labs/:lab â€” Lab detail with PC online status â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/labs/:lab' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
@@ -872,7 +872,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── GET /api/v1/labs/:lab/monitor — Who's logged in, CPU, RAM ────
+    # â”€â”€ GET /api/v1/labs/:lab/monitor â€” Who's logged in, CPU, RAM â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/labs/:lab/monitor' -ScriptBlock {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
@@ -933,11 +933,11 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #              PC MANAGEMENT (superadmin only)
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    # ── Helper: find PC across all labs ──────────────────────────────
+    # â”€â”€ Helper: find PC across all labs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function Find-PC {
         param([string]$Hostname)
         $labs = Get-Labs
@@ -948,7 +948,7 @@ Start-PodeServer -Threads $Threads {
         return $null
     }
 
-    # ── POST /api/v1/pcs/:hostname/shutdown ──────────────────────────
+    # â”€â”€ POST /api/v1/pcs/:hostname/shutdown â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/shutdown' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
@@ -967,7 +967,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/pcs/:hostname/restart ───────────────────────────
+    # â”€â”€ POST /api/v1/pcs/:hostname/restart â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/restart' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
@@ -986,7 +986,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/pcs/:hostname/logoff ────────────────────────────
+    # â”€â”€ POST /api/v1/pcs/:hostname/logoff â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/logoff' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
@@ -1011,7 +1011,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/pcs/:hostname/message ───────────────────────────
+    # â”€â”€ POST /api/v1/pcs/:hostname/message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/message' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
@@ -1037,7 +1037,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/labs/:lab/shutdown-all ───────────────────────────
+    # â”€â”€ POST /api/v1/labs/:lab/shutdown-all â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/shutdown-all' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $lab = Get-Lab -Name $WebEvent.Parameters['lab']
@@ -1054,7 +1054,7 @@ Start-PodeServer -Threads $Threads {
         Write-PodeJsonResponse -Value @{ message = "Shutdown all"; lab = $lab.Name; success = $ok.Count; failed = $fail.Count; details = @{ success = $ok; failed = $fail } }
     }
 
-    # ── POST /api/v1/labs/:lab/restart-all ────────────────────────────
+    # â”€â”€ POST /api/v1/labs/:lab/restart-all â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/restart-all' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $lab = Get-Lab -Name $WebEvent.Parameters['lab']
@@ -1071,7 +1071,7 @@ Start-PodeServer -Threads $Threads {
         Write-PodeJsonResponse -Value @{ message = "Restart all"; lab = $lab.Name; success = $ok.Count; failed = $fail.Count; details = @{ success = $ok; failed = $fail } }
     }
 
-    # ── POST /api/v1/labs/:lab/message-all ────────────────────────────
+    # â”€â”€ POST /api/v1/labs/:lab/message-all â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/message-all' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $body = $WebEvent.Data
@@ -1095,11 +1095,11 @@ Start-PodeServer -Threads $Threads {
         Write-PodeJsonResponse -Value @{ message = "Broadcast sent"; lab = $lab.Name; text = $safeMsg; success = $ok.Count; failed = $fail.Count }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #              SOFTWARE MANAGEMENT (superadmin only)
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-    # ── GET /api/v1/pcs/:hostname/software ───────────────────────────
+    # â”€â”€ GET /api/v1/pcs/:hostname/software â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Get -Path '/api/v1/pcs/:hostname/software' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
@@ -1125,7 +1125,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/pcs/:hostname/install ───────────────────────────
+    # â”€â”€ POST /api/v1/pcs/:hostname/install â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     # Body: { wingetId: "Mozilla.Firefox" }
     # OR:   { installer: "\\server\share\setup.msi", args: "/qn", type: "msi|exe" }
     Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/install' -ScriptBlock {
@@ -1173,7 +1173,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ── POST /api/v1/labs/:lab/install — Install on all PCs ──────────
+    # â”€â”€ POST /api/v1/labs/:lab/install â€” Install on all PCs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/install' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $body = $WebEvent.Data
@@ -1222,15 +1222,15 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     #                       STARTUP BANNER
-    # ══════════════════════════════════════════════════════════════════
+    # â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
     $labs = Get-Labs
     $totalPCs = ($labs | ForEach-Object { $_.PCs.Count } | Measure-Object -Sum).Sum
 
     Write-Host ""
     Write-Host "=============================================" -ForegroundColor Cyan
-    Write-Host " TCIOE Lab & User Management API" -ForegroundColor White
+    Write-Host " EMIS Lab & User Management API" -ForegroundColor White
     Write-Host " Domain:  $($script:ADDomainDNS)"
     Write-Host " Port:    $($using:Port)"
     Write-Host " Threads: $($using:Threads)"
@@ -1238,9 +1238,9 @@ Start-PodeServer -Threads $Threads {
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host " 3 Roles:" -ForegroundColor Yellow
-    Write-Host "   superadmin — Full control (users + PCs + software)"
-    Write-Host "   teacher    — Monitor any lab, reset student passwords"
-    Write-Host "   student    — Change own password only"
+    Write-Host "   superadmin â€” Full control (users + PCs + software)"
+    Write-Host "   teacher    â€” Monitor any lab, reset student passwords"
+    Write-Host "   student    â€” Change own password only"
     Write-Host ""
     Write-Host " Dashboard:" -ForegroundColor Yellow
     Write-Host "   Open browser: https://localhost:$($using:Port)/"

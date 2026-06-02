@@ -1,4 +1,4 @@
-# ================================================================
+﻿# ================================================================
 # Step 3: Bulk Create 2000 Users from CSV
 # Run AFTER Step 2 (RBAC structure must exist)
 # Run as Domain Admin on the Domain Controller
@@ -26,9 +26,9 @@ Write-Host " Domain: $DomainDNS"
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host ""
 
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Generate sample CSV with 2000 users if requested
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 if ($GenerateSample) {
     Write-Host "Generating 2000 sample users..." -ForegroundColor Yellow
 
@@ -96,9 +96,9 @@ if ($GenerateSample) {
     Write-Host ""
 }
 
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # Import users from CSV
-# ══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 if (-not (Test-Path $CsvPath)) {
     Write-Host "ERROR: CSV not found at $CsvPath" -ForegroundColor Red
     Write-Host "  Run with -GenerateSample to create a sample CSV" -ForegroundColor Yellow
@@ -123,20 +123,20 @@ foreach ($user in $Users) {
     }
 
     # Determine target OU based on department
-    $TargetOU = "OU=$($user.Department),OU=TCIOE Users,$Domain"
+    $TargetOU = "OU=$($user.Department),OU=EMIS Users,$Domain"
 
     # Handle student batches (put in sub-OU)
     if ($user.Department -eq "Students") {
         $batches = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
         $batch = $batches | Get-Random
-        $TargetOU = "OU=$batch,OU=Students,OU=TCIOE Users,$Domain"
+        $TargetOU = "OU=$batch,OU=Students,OU=EMIS Users,$Domain"
     }
 
     # Handle faculty sub-OUs
     if ($user.Department -eq "Faculty") {
         $programs = @("Computer Engineering", "Electronics Engineering", "Civil Engineering", "Electrical Engineering")
         $program = $programs | Get-Random
-        $TargetOU = "OU=$program,OU=Faculty,OU=TCIOE Users,$Domain"
+        $TargetOU = "OU=$program,OU=Faculty,OU=EMIS Users,$Domain"
     }
 
     try {
@@ -157,7 +157,7 @@ foreach ($user in $Users) {
             -EmailAddress $user.Email `
             -Title $user.Title `
             -Department $user.Department `
-            -Office "TCIOE Campus" `
+            -Office "EMIS Campus" `
             -OfficePhone $user.Phone `
             -Path $TargetOU `
             -AccountPassword $DefaultPass `
@@ -179,7 +179,7 @@ foreach ($user in $Users) {
 
 Write-Progress -Activity "Creating users" -Completed
 
-# ── Summary ──────────────────────────────────────────────────────────
+# â”€â”€ Summary â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 Write-Host ""
 Write-Host "=============================================" -ForegroundColor Cyan
 Write-Host " Bulk User Import Complete!"
@@ -199,6 +199,6 @@ foreach ($rc in $RoleCounts) {
 
 Write-Host ""
 Write-Host " Verify with:"
-Write-Host '   Get-ADUser -Filter * -SearchBase "OU=TCIOE Users,$Domain" | Measure-Object'
+Write-Host '   Get-ADUser -Filter * -SearchBase "OU=EMIS Users,$Domain" | Measure-Object'
 Write-Host '   Get-ADGroupMember "Role-Students" | Measure-Object'
 Write-Host '   Get-ADUser -Filter {Department -eq "Faculty"} | Select Name,Department'

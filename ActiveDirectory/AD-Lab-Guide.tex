@@ -26,9 +26,9 @@
 \tcbuselibrary{skins,breakable}
 
 % â”€â”€ Colors â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-\definecolor{tcioeblue}{RGB}{0,71,133}
-\definecolor{tcioedark}{RGB}{20,40,70}
-\definecolor{tcioelight}{RGB}{230,240,250}
+\definecolor{emisblue}{RGB}{0,71,133}
+\definecolor{emisdark}{RGB}{20,40,70}
+\definecolor{emislight}{RGB}{230,240,250}
 \definecolor{accentgreen}{RGB}{40,160,80}
 \definecolor{accentorange}{RGB}{220,120,20}
 \definecolor{codebg}{RGB}{245,245,245}
@@ -41,9 +41,9 @@
 % â”€â”€ Hyperref â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 \hypersetup{
     colorlinks=true,
-    linkcolor=tcioeblue,
-    urlcolor=tcioeblue,
-    pdfauthor={TCIOE IT Department},
+    linkcolor=emisblue,
+    urlcolor=emisblue,
+    pdfauthor={EMIS IT Department},
     pdftitle={Active Directory Lab Setup Guide},
     pdfsubject={Windows Server AD DS with RBAC},
 }
@@ -60,7 +60,7 @@
     xrightmargin=6pt,
     showstringspaces=false,
     tabsize=4,
-    keywordstyle=\color{tcioeblue}\bfseries,
+    keywordstyle=\color{emisblue}\bfseries,
     commentstyle=\color{gray},
     stringstyle=\color{accentgreen},
     numbers=none,
@@ -96,22 +96,22 @@
 
 % â”€â”€ Section Styling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 \titleformat{\section}
-    {\Large\bfseries\color{tcioeblue}}
+    {\Large\bfseries\color{emisblue}}
     {Part \thesection:}{0.5em}{}
-    [\vspace{-4pt}\textcolor{tcioeblue}{\rule{\textwidth}{1.5pt}}]
+    [\vspace{-4pt}\textcolor{emisblue}{\rule{\textwidth}{1.5pt}}]
 
 \titleformat{\subsection}
-    {\large\bfseries\color{tcioedark}}
+    {\large\bfseries\color{emisdark}}
     {\thesubsection}{0.5em}{}
 
 \titleformat{\subsubsection}
-    {\normalsize\bfseries\color{tcioedark}}
+    {\normalsize\bfseries\color{emisdark}}
     {\thesubsubsection}{0.5em}{}
 
 % â”€â”€ Header / Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\textcolor{gray}{TCIOE --- Active Directory Lab Guide}}
+\fancyhead[L]{\small\textcolor{gray}{EMIS --- Active Directory Lab Guide}}
 \fancyhead[R]{\small\textcolor{gray}{Confidential}}
 \fancyfoot[C]{\small\textcolor{gray}{Page \thepage}}
 \fancyfoot[R]{\small\textcolor{gray}{June 2026}}
@@ -125,11 +125,11 @@
 \begin{titlepage}
 \begin{tikzpicture}[remember picture, overlay]
     % Top blue bar
-    \fill[tcioeblue] (current page.north west) rectangle ([yshift=-4cm]current page.north east);
+    \fill[emisblue] (current page.north west) rectangle ([yshift=-4cm]current page.north east);
     % Accent line
     \fill[accentgreen] ([yshift=-4cm]current page.north west) rectangle ([yshift=-4.15cm]current page.north east);
     % Bottom bar
-    \fill[tcioedark] (current page.south west) rectangle ([yshift=2cm]current page.south east);
+    \fill[emisdark] (current page.south west) rectangle ([yshift=2cm]current page.south east);
 \end{tikzpicture}
 
 \vspace*{1cm}
@@ -141,17 +141,17 @@
 \vspace{3cm}
 
 \begin{center}
-    {\LARGE\bfseries\textcolor{tcioeblue}{Windows Server 2019}}\\[10pt]
-    {\LARGE\textcolor{tcioedark}{Domain Controller with RBAC}}\\[8pt]
-    {\large\textcolor{tcioedark}{2000 Users --- 5 Labs $\times$ 24 PCs --- Lab Management API}}\\[40pt]
+    {\LARGE\bfseries\textcolor{emisblue}{Windows Server 2019}}\\[10pt]
+    {\LARGE\textcolor{emisdark}{Domain Controller with RBAC}}\\[8pt]
+    {\large\textcolor{emisdark}{2000 Users --- 5 Labs $\times$ 24 PCs --- Lab Management API}}\\[40pt]
 
-    \textcolor{tcioeblue}{\rule{0.6\textwidth}{1pt}}\\[20pt]
+    \textcolor{emisblue}{\rule{0.6\textwidth}{1pt}}\\[20pt]
 
     {\large
     \begin{tabular}{rl}
-        \textbf{Domain:}       & \texttt{tcioe.edu.np} \\[4pt]
+        \textbf{Domain:}       & \texttt{emis.local} \\[4pt]
         \textbf{Environment:}  & VMware ESXi 8.0 \\[4pt]
-        \textbf{Prepared by:}  & TCIOE IT Department \\[4pt]
+        \textbf{Prepared by:}  & EMIS IT Department \\[4pt]
         \textbf{Date:}         & June 2026 \\[4pt]
         \textbf{Scripts:}       & 4 (AD DS, RBAC, Users, Lab API) \\[4pt]
         \textbf{Version:}      & 2.0 \\
@@ -347,12 +347,12 @@ This script:
 \begin{itemize}
     \item Installs AD-DS, DNS, and GPMC server roles
     \item Promotes the server to a Domain Controller
-    \item Creates the forest: \texttt{tcioe.edu.np} (NetBIOS: \texttt{TCIOE})
+    \item Creates the forest: \texttt{emis.local} (NetBIOS: \texttt{EMIS})
     \item \textbf{Server reboots automatically} --- wait 2--3 minutes
 \end{itemize}
 
 \begin{warningbox}
-After reboot, the login screen will show \texttt{TCIOE\textbackslash Administrator}. Use your Administrator password to login.
+After reboot, the login screen will show \texttt{EMIS\textbackslash Administrator}. Use your Administrator password to login.
 \end{warningbox}
 
 \subsection{Step 2: Create RBAC Structure}
@@ -388,8 +388,8 @@ The access model follows industry best practice:
 
 \begin{center}
 \begin{tikzpicture}[
-    box/.style={draw, rounded corners=4pt, fill=tcioelight, minimum width=3cm, minimum height=0.8cm, align=center, font=\small},
-    arrow/.style={->, thick, color=tcioeblue}
+    box/.style={draw, rounded corners=4pt, fill=emislight, minimum width=3cm, minimum height=0.8cm, align=center, font=\small},
+    arrow/.style={->, thick, color=emisblue}
 ]
     \node[box] (user) at (0,0) {\textbf{User}\\suman.sharma};
     \node[box] (role) at (4.5,0) {\textbf{Role Group}\\Role-Teacher};
@@ -628,10 +628,10 @@ curl -X DELETE -H "X-Api-Key: ADMIN_KEY" \
 
 \begin{center}
 \begin{tikzpicture}[
-    lab/.style={draw, rounded corners=4pt, fill=tcioelight, minimum width=2.8cm, minimum height=1.8cm, align=center, font=\small},
+    lab/.style={draw, rounded corners=4pt, fill=emislight, minimum width=2.8cm, minimum height=1.8cm, align=center, font=\small},
     sw/.style={draw, rounded corners=2pt, fill=white, minimum width=1.8cm, minimum height=0.6cm, align=center, font=\footnotesize},
-    dc/.style={draw, rounded corners=6pt, fill=tcioelight, minimum width=3.5cm, minimum height=1.5cm, align=center},
-    arrow/.style={thick, color=tcioeblue}
+    dc/.style={draw, rounded corners=6pt, fill=emislight, minimum width=3.5cm, minimum height=1.5cm, align=center},
+    arrow/.style={thick, color=emisblue}
 ]
     % Core switch / DC
     \node[dc] (dcnode) at (0,3) {\textbf{DC01 (API Server)}\\\texttt{192.168.1.10:8443}};
@@ -680,7 +680,7 @@ Set-Item WSMan:\localhost\Client\TrustedHosts -Value "DC01" -Force
 
 Or deploy via Group Policy:
 \begin{enumerate}
-    \item Open \textbf{Group Policy Management} $\rightarrow$ create GPO under \texttt{TCIOE Computers}
+    \item Open \textbf{Group Policy Management} $\rightarrow$ create GPO under \texttt{EMIS Computers}
     \item Navigate to: Computer Configuration $\rightarrow$ Policies $\rightarrow$ Administrative Templates $\rightarrow$ Windows Components $\rightarrow$ Windows Remote Management
     \item Enable \textbf{Allow remote server management through WinRM}
     \item Set IPv4 filter to \texttt{*}
@@ -707,7 +707,7 @@ Every lab PC must be configured so that teachers and students can log in with th
 1 & Windows 10/11 Pro or Education & Home edition cannot join a domain \\
 2 & Static IP address & Each PC gets a fixed IP from its lab subnet (e.g., \texttt{10.10.1.11}) \\
 3 & DNS pointing to DC & Primary DNS = \texttt{192.168.1.10} (the Domain Controller) \\
-4 & Domain-joined & Joined to \texttt{tcioe.edu.np} domain \\
+4 & Domain-joined & Joined to \texttt{emis.local} domain \\
 5 & WinRM enabled & For remote management via the API \\
 6 & Firewall rules & Allow WinRM (TCP 5985/5986) and ICMP ping from DC \\
 \bottomrule
@@ -751,10 +751,10 @@ Set-DnsClientServerAddress -InterfaceIndex $nic.ifIndex `
 \subsubsection{2. Join Domain}
 
 \begin{lstlisting}
-Add-Computer -DomainName "tcioe.edu.np" -Restart
+Add-Computer -DomainName "emis.local" -Restart
 \end{lstlisting}
 
-Enter \texttt{TCIOE\textbackslash Administrator} credentials when prompted. PC reboots and is now domain-joined.
+Enter \texttt{EMIS\textbackslash Administrator} credentials when prompted. PC reboots and is now domain-joined.
 
 \subsubsection{3. Enable WinRM}
 
@@ -833,7 +833,7 @@ Once a PC is set up, users log in with their domain credentials:
 
 \begin{cmdbox}
 \begin{tabular}{ll}
-\textbf{Username:} & \texttt{TCIOE\textbackslash suman.adhikari} \\
+\textbf{Username:} & \texttt{EMIS\textbackslash suman.adhikari} \\
 \textbf{Password:} & Their AD password (forced change on first login) \\
 \end{tabular}
 \end{cmdbox}
@@ -878,10 +878,10 @@ After running all three scripts, verify the deployment:
 Get-ADUser -Filter * | Measure-Object
 
 # Students
-Get-ADUser -Filter * -SearchBase "OU=Students,OU=TCIOE Users,DC=tcioe,DC=edu,DC=np" | Measure-Object
+Get-ADUser -Filter * -SearchBase "OU=Students,OU=EMIS Users,DC=emis,DC=local" | Measure-Object
 
 # List first 10
-Get-ADUser -Filter * -SearchBase "OU=TCIOE Users,DC=tcioe,DC=edu,DC=np" -Properties Department |
+Get-ADUser -Filter * -SearchBase "OU=EMIS Users,DC=emis,DC=local" -Properties Department |
     Select-Object -First 10 Name, SamAccountName, Department |
     Format-Table -AutoSize
 \end{lstlisting}
@@ -954,14 +954,14 @@ DNS:     & \texttt{192.168.1.10} \\
 \subsection{Join Domain}
 
 \begin{lstlisting}
-Add-Computer -DomainName "tcioe.edu.np" -Restart
+Add-Computer -DomainName "emis.local" -Restart
 \end{lstlisting}
 
 Enter domain admin credentials when prompted. After reboot, login as:
 
 \begin{cmdbox}
 \begin{tabular}{ll}
-Username: & \texttt{TCIOE\textbackslash suman.sharma} \\
+Username: & \texttt{EMIS\textbackslash suman.sharma} \\
 Password: & \texttt{Welcome@123} (default --- will force change) \\
 \end{tabular}
 \end{cmdbox}
@@ -972,8 +972,8 @@ Password: & \texttt{Welcome@123} (default --- will force change) \\
 
 \begin{center}
 \begin{tikzpicture}[
-    server/.style={draw, rounded corners=6pt, fill=tcioelight, minimum width=4.5cm, minimum height=3.2cm, align=center},
-    host/.style={draw, rounded corners=6pt, fill=white, minimum width=10cm, minimum height=5.5cm, align=center, dashed, thick, color=tcioeblue},
+    server/.style={draw, rounded corners=6pt, fill=emislight, minimum width=4.5cm, minimum height=3.2cm, align=center},
+    host/.style={draw, rounded corners=6pt, fill=white, minimum width=10cm, minimum height=5.5cm, align=center, dashed, thick, color=emisblue},
     router/.style={draw, rounded corners=4pt, fill=white, minimum width=2.5cm, minimum height=1cm, align=center},
     label/.style={font=\small\ttfamily}
 ]
@@ -986,7 +986,7 @@ Password: & \texttt{Welcome@123} (default --- will force change) \\
         \textbf{WinServer-DC}\\
         \texttt{192.168.1.10}\\[4pt]
         AD DS + DNS\\
-        tcioe.edu.np\\
+        emis.local\\
         2000 Users\\
         120 PCs (5 Labs)
     };
@@ -998,7 +998,7 @@ Password: & \texttt{Welcome@123} (default --- will force change) \\
     };
 
     % Network line
-    \draw[thick, color=tcioeblue] (-5,-2.5) -- (5,-2.5);
+    \draw[thick, color=emisblue] (-5,-2.5) -- (5,-2.5);
     \node[below, font=\small] at (0,-2.5) {VM Network (vSwitch0)};
 
     % Connect VMs to network
@@ -1063,8 +1063,8 @@ API key rejected (403) & Verify the key in \texttt{api-keys.json} matches exactl
 
 \vfill
 \begin{center}
-\textcolor{tcioeblue}{\rule{0.4\textwidth}{1pt}}\\[10pt]
-{\small\textcolor{gray}{Prepared by TCIOE IT Department --- June 2026}}\\
+\textcolor{emisblue}{\rule{0.4\textwidth}{1pt}}\\[10pt]
+{\small\textcolor{gray}{Prepared by EMIS IT Department --- June 2026}}\\
 {\small\textcolor{gray}{Thapathali Campus, Institute of Engineering, Tribhuvan University}}
 \end{center}
 

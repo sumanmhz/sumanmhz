@@ -1,7 +1,7 @@
 ﻿# Active Directory Lab Setup â€” Complete Guide (From Zero)
 
 > **Goal:** Set up a Windows Server Domain Controller with 2000 users and RBAC  
-> **Domain:** tcioe.edu.np  
+> **Domain:** emis.local  
 > **Environment:** VMware ESXi â†’ Windows Server 2019 VM
 
 ---
@@ -331,7 +331,7 @@ cd C:\Scripts
 
 What happens:
 - Installs AD-DS, DNS, and GPMC roles
-- Promotes server to Domain Controller for **tcioe.edu.np**
+- Promotes server to Domain Controller for **emis.local**
 - **Server reboots automatically** (wait 2-3 minutes)
 
 ### Step 3: Login After Reboot
@@ -339,7 +339,7 @@ What happens:
 After reboot, the login screen now shows:
 
 ```
-TCIOE\Administrator
+EMIS\Administrator
 ```
 
 Login with your Administrator password.
@@ -381,10 +381,10 @@ cd C:\Scripts
 Get-ADUser -Filter * | Measure-Object
 
 # Users in Students OU
-Get-ADUser -Filter * -SearchBase "OU=Students,OU=TCIOE Users,DC=tcioe,DC=edu,DC=np" | Measure-Object
+Get-ADUser -Filter * -SearchBase "OU=Students,OU=EMIS Users,DC=emis,DC=local" | Measure-Object
 
 # List first 10 users
-Get-ADUser -Filter * -SearchBase "OU=TCIOE Users,DC=tcioe,DC=edu,DC=np" -Properties Department |
+Get-ADUser -Filter * -SearchBase "OU=EMIS Users,DC=emis,DC=local" -Properties Department |
     Select-Object -First 10 Name, SamAccountName, Department |
     Format-Table -AutoSize
 ```
@@ -446,7 +446,7 @@ DNS:         192.168.1.10    â† DC's IP address!
 ### Step 3: Join Domain
 
 ```powershell
-Add-Computer -DomainName "tcioe.edu.np" -Restart
+Add-Computer -DomainName "emis.local" -Restart
 ```
 
 Enter domain admin credentials when prompted. PC reboots.
@@ -455,7 +455,7 @@ Enter domain admin credentials when prompted. PC reboots.
 
 On the login screen, click **Other user** and enter:
 ```
-Username: TCIOE\suman.sharma    (or any created user)
+Username: EMIS\suman.sharma    (or any created user)
 Password: Welcome@123           (default password)
 ```
 
