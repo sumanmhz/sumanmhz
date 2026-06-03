@@ -176,7 +176,71 @@ curl -X POST http://localhost:8080/api/v1/auth/login \
 Get current user info (requires login session).
 
 #### `GET /api/v1/dashboard`
-Dashboard stats (user counts, lab status).
+Aggregate stats for the web dashboard. Teachers get lab/session/announcement data. Superadmins get everything including user breakdowns, blocking stats, audit activity, and photo counts.
+
+**Response (superadmin):**
+```json
+{
+  "totalLabs": 4,
+  "totalPCs": 120,
+  "onlinePCs": 87,
+  "offlinePCs": 33,
+  "labs": [
+    { "name": "Lab-D101", "location": "D-Block 1st Floor", "total": 30, "online": 24, "offline": 6 },
+    { "name": "Lab-D201", "location": "D-Block 2nd Floor", "total": 30, "online": 21, "offline": 9 }
+  ],
+  "sessions": {
+    "active": 45,
+    "idle": 8,
+    "byLab": { "Lab-D101": 20, "Lab-D201": 15, "Lab-D301": 10 }
+  },
+  "users": {
+    "total": 1250,
+    "enabled": 1180,
+    "disabled": 70,
+    "students": 1100,
+    "staff": 150,
+    "byProgram": { "BCT": 240, "BEI": 210, "BCE": 200, "BAR": 96, "BME": 144, "BIE": 96, "BAM": 48, "MMDM": 24, "MEE": 24, "MIISE": 18 },
+    "byBatch": { "Batch-2080": 220, "Batch-2081": 220, "Batch-2082": 220, "Batch-2083": 220, "Batch-2084": 220 },
+    "byDepartment": { "DOECE": 40, "DOCE": 30, "DAME": 25, "DOA": 15, "DOIE": 10, "DOAS": 15, "Administration": 10, "IT": 5 }
+  },
+  "announcements": 3,
+  "examModeLabs": ["Lab-D101"],
+  "activeSchedules": 2,
+  "blocking": { "sites": 5, "apps": 2 },
+  "recentAuditEvents": 42,
+  "photos": 980,
+  "timestamp": "2026-06-03T14:30:00.000Z"
+}
+```
+
+**Dashboard Graphs (what you can build from this data):**
+
+| Graph | Type | Data Source |
+|-------|------|-------------|
+| Lab PC Status | Stacked bar or donut | `labs[].online` vs `labs[].offline` per lab |
+| Overall PC Health | Donut/pie | `onlinePCs` vs `offlinePCs` |
+| Active Sessions by Lab | Bar chart | `sessions.byLab` |
+| Active vs Idle Users | Donut | `sessions.active - sessions.idle` vs `sessions.idle` |
+| Students by Program | Horizontal bar | `users.byProgram` (BCT, BEI, BCE, etc.) |
+| Students by Batch | Bar chart | `users.byBatch` (Batch-2080 through 2084) |
+| Staff by Department | Horizontal bar | `users.byDepartment` |
+| Enabled vs Disabled Users | Donut/pie | `users.enabled` vs `users.disabled` |
+| Students vs Staff | Pie chart | `users.students` vs `users.staff` |
+| Blocking Overview | Stat cards | `blocking.sites`, `blocking.apps` counts |
+| System Activity | Stat card + sparkline | `recentAuditEvents` (24h trend from `/audit`) |
+| Exam Mode Status | Status indicators | `examModeLabs` — which labs are locked down |
+| Photo Coverage | Progress bar | `photos` vs `users.students` (% with photos) |
+| Announcements & Schedules | Stat cards | `announcements`, `activeSchedules` counts |
+
+**Time-series graphs** (call `/api/v1/sessions/history` and `/api/v1/audit` periodically):
+
+| Graph | Type | Data Source |
+|-------|------|-------------|
+| Login Activity Over Time | Line/area chart | `/sessions/history` — group by hour/day |
+| Peak Lab Usage Hours | Heatmap | `/sessions/history` — hour × day-of-week |
+| Audit Activity Timeline | Line chart | `/audit` — group by hour/day |
+| Per-Lab Usage Trend | Multi-line chart | `/sessions/history?lab=X` — daily active users per lab |
 
 ---
 
@@ -337,45 +401,46 @@ curl -X DELETE -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
 
 Photos are stored on the server at `C:\emis-api\photos\` and also set as AD `thumbnailPhoto` attribute when linked during user creation.
 
-#### `POST /api/v1/photos/bulk`
-Bulk upload photos as base64-encoded JSON.
+#### `POST /api/v1/photos/upload`
+Upload a photo file via multipart/form-data. *Role: superadmin*
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/photos/bulk \
+# Upload with auto-detected filename
+curl -X POST http://localhost:8080/api/v1/photos/upload \
   -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "photos": [
-      { "filename": "THA080BCT001.jpg", "base64": "/9j/4AAQ..." },
-      { "filename": "THA080BCT002.jpg", "base64": "/9j/4BBR..." }
-    ]
-  }'
+  -F "photo=@THA080BCT001.jpg"
+
+# Upload with custom username (renames file to username.ext)
+curl -X POST http://localhost:8080/api/v1/photos/upload \
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  -F "photo=@photo.jpg" \
+  -F "username=THA080BCT001"
 ```
 
-- Max 500 photos per request
-- Max 1MB per photo
+- Max 2MB per photo
 - Supported: `.jpg`, `.jpeg`, `.png`
+- Field name must be `photo`
+- Optional `username` field to rename the saved file
 
-**Response:**
+**Response (201):**
 ```json
 {
-  "summary": { "total": 2, "saved": 2, "failed": 0 },
-  "saved": [
-    { "filename": "THA080BCT001.jpg", "size": 45230, "url": "/api/v1/photos/THA080BCT001.jpg" }
-  ],
-  "failed": []
+  "message": "Photo uploaded",
+  "filename": "THA080BCT001.jpg",
+  "size": 45230,
+  "url": "/api/v1/photos/THA080BCT001.jpg"
 }
 ```
 
 #### `GET /api/v1/photos/:filename`
-Serve a photo file.
+Serve a photo file. No auth required.
 ```bash
 curl http://localhost:8080/api/v1/photos/THA080BCT001.jpg -o photo.jpg
 ```
 
 **Workflow:**
-1. Upload photos in bulk → `POST /api/v1/photos/bulk`
-2. Create users with `"photo": "THA080BCT001.jpg"` → sets AD `thumbnailPhoto` automatically
+1. Upload photo → `POST /api/v1/photos/upload` (with `username=THA080BCT001`)
+2. Create user with `"photo": "THA080BCT001.jpg"` → sets AD `thumbnailPhoto` automatically
 3. View any photo → `GET /api/v1/photos/THA080BCT001.jpg`
 
 ---
@@ -797,11 +862,11 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/users" -Header
 # List users
 Invoke-RestMethod -Uri "http://localhost:8080/api/v1/users?dept=DOECE" -Headers $h
 
-# Upload photo
-$b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\photo.jpg"))
-Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/photos/bulk" -Headers $h -Body (@{
-    photos = @(@{ filename="THA080BCT001.jpg"; base64=$b64 })
-} | ConvertTo-Json -Depth 3)
+# Upload photo (PowerShell 7+)
+curl.exe -X POST "http://localhost:8080/api/v1/photos/upload" `
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" `
+  -F "photo=@C:\path\to\photo.jpg" `
+  -F "username=THA080BCT001"
 
 # Send message
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/pcs/DESKTOP-O8QKSH4/message" -Headers $h -Body (@{
