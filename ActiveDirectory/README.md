@@ -16,9 +16,10 @@ Built with [Pode](https://github.com/Badgerati/Pode) (PowerShell web framework) 
 └──────────────┘                                                            └────────┬─────────┘
                                                                                      │
                     ┌──────────────┐     Polls every 30s                              │
-                    │  Lab PCs     │ ◀──── GET /pending-messages ─────────────────────┘
-                    │  (Domain     │ ────▶ POST /pcs/register (on boot)
-                    │   Joined)    │
+                    │  Lab PCs     │ ◀──── GET /pcs/:hostname/config ─────────────────┘
+                    │  (EMIS Agent)│ ────▶ POST /pcs/register (on boot)
+                    │  (Domain     │ ────▶ POST /sessions/report (login/idle/logout)
+                    │   Joined)    │ ◀──── Blocked sites, apps, exam mode, announcements
                     └──────────────┘
 ```
 
@@ -439,13 +440,28 @@ curl -X POST http://localhost:8080/api/v1/pcs/DESKTOP-O8QKSH4/message \
 Used by polling agent to fetch queued messages. Requires `polling-agent` key.
 
 #### `POST /api/v1/pcs/register`
-Auto-register a lab PC (called by startup script). Auto-detects lab from IP subnet.
+Auto-register a lab PC (called by startup script). Auto-detects lab from IP subnet. Includes MAC for WOL.
 ```json
-{ "hostname": "DESKTOP-O8QKSH4", "ip": "10.10.30.89" }
+{ "hostname": "DESKTOP-O8QKSH4", "ip": "10.10.30.89", "mac": "AA:BB:CC:DD:EE:FF" }
 ```
 
 #### `GET /api/v1/pcs/registered`
 List all registered lab PCs.
+
+#### `GET /api/v1/pcs/:hostname/config`
+Returns full config for a lab PC (used by polling agent). Returns blocked sites, blocked apps, exam mode, announcements, and shutdown schedule — all in one call.
+
+**Response:**
+```json
+{
+  "hostname": "DESKTOP-O8QKSH4",
+  "blockedSites": ["facebook.com", "tiktok.com"],
+  "blockedApps": ["chrome", "firefox"],
+  "examMode": { "enabled": false },
+  "announcements": [],
+  "schedule": null
+}
+```
 
 ---
 
@@ -478,15 +494,244 @@ Install software on all PCs in a lab.
 
 ---
 
+### Website Blocking
+
+Block websites on lab PCs by adding entries to their hosts file (resolved to 127.0.0.1).
+
+#### `GET /api/v1/websites/blocked`
+List all blocked websites. *Roles: superadmin, teacher*
+
+#### `POST /api/v1/websites/block`
+Block a website. *Role: superadmin*
+```bash
+curl -X POST http://localhost:8080/api/v1/websites/block \
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  -H "Content-Type: application/json" \
+  -d '{"domain":"facebook.com","reason":"Social media","labs":["Lab1","Lab2"]}'
+```
+- `labs` is optional — if omitted, blocks on ALL labs.
+
+#### `DELETE /api/v1/websites/block/:domain`
+Unblock a website. *Role: superadmin*
+```bash
+curl -X DELETE -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  http://localhost:8080/api/v1/websites/block/facebook.com
+```
+
+---
+
+### App Blocking
+
+Block applications on lab PCs by killing their processes.
+
+#### `GET /api/v1/apps/blocked`
+List all blocked apps. *Roles: superadmin, teacher*
+
+#### `POST /api/v1/apps/block`
+Block an application. *Role: superadmin*
+```bash
+curl -X POST http://localhost:8080/api/v1/apps/block \
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  -H "Content-Type: application/json" \
+  -d '{"processName":"chrome","displayName":"Google Chrome","labs":["Lab1"]}'
+```
+
+#### `DELETE /api/v1/apps/block/:appname`
+Unblock an application. *Role: superadmin*
+
+---
+
+### Exam Mode
+
+Lock down a lab for exams — block internet (except whitelisted sites), restrict apps, show exam message.
+
+#### `GET /api/v1/labs/:lab/exam-mode`
+Get exam mode status. *Roles: superadmin, teacher*
+
+#### `POST /api/v1/labs/:lab/exam-mode`
+Enable exam mode. *Role: superadmin*
+```bash
+curl -X POST http://localhost:8080/api/v1/labs/Lab1/exam-mode \
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "blockInternet": true,
+    "allowedSites": ["10.10.100.3", "moodle.tcioe.edu.np"],
+    "allowedApps": ["notepad", "devenv"],
+    "blockUSB": true,
+    "message": "DBMS Lab Exam in progress"
+  }'
+```
+
+**How it works on lab PCs:**
+- Windows Firewall blocks all outbound traffic
+- Only whitelisted IPs (resolved from `allowedSites`) are allowed
+- DC traffic (10.10.100.0/24) and DNS are always allowed
+- Non-allowed apps with visible windows are killed
+- Exam message is displayed via `msg.exe`
+
+#### `DELETE /api/v1/labs/:lab/exam-mode`
+Disable exam mode. *Role: superadmin*
+
+---
+
+### Session Tracking
+
+Track user logins, logouts, and idle time on lab PCs.
+
+#### `POST /api/v1/sessions/report`
+Report a session event (used by polling agent). *Role: polling-agent*
+```json
+{ "hostname": "DESKTOP-O8QKSH4", "username": "THA080BCT001", "action": "login" }
+```
+Actions: `login`, `logout`, `idle`, `active`. Idle reports include `idleMinutes`.
+
+#### `GET /api/v1/sessions/active`
+List currently active sessions. *Roles: superadmin, teacher*
+```bash
+curl -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  "http://localhost:8080/api/v1/sessions/active?lab=Lab1"
+```
+
+#### `GET /api/v1/sessions/history`
+Session history with pagination. *Role: superadmin*
+
+| Param | Description |
+|-------|------------|
+| `page` | Page number (default: 1) |
+| `pageSize` | Results per page (default: 50) |
+| `hostname` | Filter by PC |
+| `username` | Filter by user |
+| `lab` | Filter by lab |
+
+#### `GET /api/v1/labs/:lab/idle`
+List idle users in a lab (idle >= 5 minutes). *Roles: superadmin, teacher*
+
+---
+
+### Announcements
+
+Broadcast announcements to lab PCs. Shown via `msg.exe`, auto-expires.
+
+#### `GET /api/v1/announcements`
+List active announcements. *Any authenticated role + polling-agent*
+
+#### `POST /api/v1/announcements`
+Create an announcement. *Roles: superadmin, teacher*
+```bash
+curl -X POST http://localhost:8080/api/v1/announcements \
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Maintenance Notice",
+    "message": "Labs will be closed for maintenance on Saturday.",
+    "priority": "high",
+    "labs": ["Lab1", "Lab2"],
+    "expiresAt": "2026-06-05T18:00:00"
+  }'
+```
+- `priority`: `normal` (default) or `high`
+- `labs`: optional — if omitted, shows on ALL labs
+- `expiresAt`: optional — auto-removes after this time
+
+#### `DELETE /api/v1/announcements/:id`
+Delete an announcement. *Role: superadmin*
+
+---
+
+### Wake-on-LAN
+
+Wake powered-off lab PCs remotely using UDP magic packets. Requires MAC address in pc-registry.
+
+#### `POST /api/v1/pcs/:hostname/wake`
+Wake a single PC. *Role: superadmin*
+```bash
+curl -X POST -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  http://localhost:8080/api/v1/pcs/DESKTOP-O8QKSH4/wake
+```
+
+#### `POST /api/v1/labs/:lab/wake-all`
+Wake all PCs in a lab. *Role: superadmin*
+```bash
+curl -X POST -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  http://localhost:8080/api/v1/labs/Lab1/wake-all
+```
+
+---
+
+### Scheduled Shutdown
+
+Schedule automatic shutdown for lab PCs with user warnings.
+
+#### `GET /api/v1/schedules`
+List all shutdown schedules. *Role: superadmin*
+
+#### `POST /api/v1/labs/:lab/schedule-shutdown`
+Create a scheduled shutdown. *Role: superadmin*
+```bash
+curl -X POST http://localhost:8080/api/v1/labs/Lab1/schedule-shutdown \
+  -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  -H "Content-Type: application/json" \
+  -d '{"time":"17:00","days":["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday"],"warnMinutes":10}'
+```
+- `time`: shutdown time in HH:MM format
+- `days`: array of day names
+- `warnMinutes`: warn users N minutes before (default: 10)
+
+#### `DELETE /api/v1/schedules/:id`
+Remove a shutdown schedule. *Role: superadmin*
+
+---
+
+### Audit Log
+
+All admin actions are logged with actor, action, target, and timestamp.
+
+#### `GET /api/v1/audit`
+View audit log with pagination. *Role: superadmin*
+```bash
+curl -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
+  "http://localhost:8080/api/v1/audit?page=1&pageSize=50&action=block-website"
+```
+
+| Param | Description |
+|-------|------------|
+| `page` | Page number (default: 1) |
+| `pageSize` | Results per page (default: 50) |
+| `action` | Filter by action type |
+
+**Example audit entry:**
+```json
+{
+  "timestamp": "2026-06-03T14:30:00.000Z",
+  "actor": "Administrator",
+  "action": "block-website",
+  "target": "facebook.com",
+  "details": "Reason: Social media, Labs: Lab1, Lab2"
+}
+```
+
+---
+
 ## Lab PC Polling System
 
 Lab PCs can't be reached from the DC (router blocks inter-VLAN). Instead, PCs poll the API.
 
-**Startup Script** (`poll-messages.ps1`):
-- Deployed via GPO as a startup script
-- Auto-registers PC hostname + IP on boot
-- Polls `GET /pending-messages` every 30 seconds
-- Displays messages via `msg.exe` + balloon notification
+**EMIS Agent** (`poll-messages.ps1`):
+- Deployed via GPO as a startup script (runs as SYSTEM)
+- Auto-registers PC hostname, IP, and MAC address on boot
+- Polls every 30 seconds for:
+  - Pending messages → displayed via `msg.exe`
+  - Full config via `GET /pcs/:hostname/config` (single call)
+- **Website blocking**: updates Windows `hosts` file with blocked domains (→ 127.0.0.1), flushes DNS
+- **App blocking**: kills processes matching blocked app names
+- **Exam mode**: enables Windows Firewall rules (block all outbound, whitelist allowed IPs), kills unauthorized apps
+- **Session tracking**: reports login/logout/idle/active events to `POST /sessions/report`
+- **Idle detection**: uses Win32 `GetLastInputInfo` API — reports when idle >= 5 minutes
+- **Announcements**: shows via `msg.exe`, tracks shown IDs to avoid repeats
+- **Scheduled shutdown**: warns users N minutes before, executes `Stop-Computer` at scheduled time
+- **Heartbeat**: sends active report every 5 minutes (10 poll cycles)
+- **Log rotation**: keeps log file under 1MB
 
 **GPO**: "Lab PC Security" — includes startup script, firewall rules, and lockdown policies.
 
@@ -517,6 +762,13 @@ All stored in `C:\emis-api\`:
 | `lab-subnets.json` | Subnet → lab name mapping |
 | `pc-registry.json` | Auto-registered PCs |
 | `message-queue.json` | Pending messages for lab PCs |
+| `blocked-sites.json` | Blocked website domains |
+| `blocked-apps.json` | Blocked application process names |
+| `exam-mode.json` | Exam mode config per lab |
+| `announcements.json` | Active announcements |
+| `sessions.json` | Active/historical session data |
+| `schedules.json` | Scheduled shutdown configs |
+| `audit-log.json` | Admin action audit trail (max 10,000 entries) |
 | `photos/` | User photos directory |
 
 ---
