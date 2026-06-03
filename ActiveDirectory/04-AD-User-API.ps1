@@ -225,6 +225,10 @@ if (-not (Test-Path $LabFile)) {
 # -
 # START PODE SERVER
 # -
+
+# Load required assembly for password validation
+Add-Type -AssemblyName System.DirectoryServices.AccountManagement
+
 Start-PodeServer -Threads $Threads {
 
     # - Server Config -
