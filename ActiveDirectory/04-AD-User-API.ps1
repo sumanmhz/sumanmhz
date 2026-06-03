@@ -408,7 +408,7 @@ Start-PodeServer -Threads $Threads {
         }
 
         $keys = @(Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json)
-        $matched = $keys | Where-Object { $_.Key -eq $apiKey }
+        $matched = $keys | Where-Object { $_.Key -eq $apiKey } | Select-Object -First 1
 
         if (-not $matched) {
             Set-PodeResponseStatus -Code 403 -NoErrorPage
