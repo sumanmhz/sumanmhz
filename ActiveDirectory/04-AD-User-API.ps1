@@ -402,7 +402,7 @@ Start-PodeServer -Threads $Threads {
 
         $apiKey = $WebEvent.Request.Headers['X-Api-Key']
         if ([string]::IsNullOrWhiteSpace($apiKey)) {
-            Set-PodeResponseStatus -Code 401 -NoPage
+            Set-PodeResponseStatus -Code 401 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "Unauthorized"; message = "Missing X-Api-Key header" }
             return $false
         }
@@ -411,7 +411,7 @@ Start-PodeServer -Threads $Threads {
         $matched = $keys | Where-Object { $_.Key -eq $apiKey }
 
         if (-not $matched) {
-            Set-PodeResponseStatus -Code 403 -NoPage
+            Set-PodeResponseStatus -Code 403 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "Forbidden"; message = "Invalid API key" }
             return $false
         }
@@ -436,7 +436,7 @@ Start-PodeServer -Threads $Threads {
         param([string[]]$Allowed)
         $role = $WebEvent.Data['_role']
         if ($role -in $Allowed) { return $true }
-        Set-PodeResponseStatus -Code 403 -NoPage
+        Set-PodeResponseStatus -Code 403 -NoErrorPage
         Write-PodeJsonResponse -Value @{
             error   = "Forbidden"
             message = "Role '$role' cannot access this. Required: $($Allowed -join ' or ')"
@@ -459,7 +459,7 @@ Start-PodeServer -Threads $Threads {
                 timestamp = (Get-Date -Format "o")
             }
         } catch {
-            Set-PodeResponseStatus -Code 503 -NoPage
+            Set-PodeResponseStatus -Code 503 -NoErrorPage
             Write-PodeJsonResponse -Value @{ status = "unhealthy"; error = $_.Exception.Message }
         }
     }
@@ -472,7 +472,7 @@ Start-PodeServer -Threads $Threads {
     Add-PodeRoute -Method Post -Path '/api/v1/auth/login' -ScriptBlock {
         $body = $WebEvent.Data
         if ([string]::IsNullOrWhiteSpace($body.username) -or [string]::IsNullOrWhiteSpace($body.password)) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'username' and 'password' required" }
             return
         }
@@ -486,7 +486,7 @@ Start-PodeServer -Threads $Threads {
         } catch { $valid = $false }
 
         if (-not $valid) {
-            Set-PodeResponseStatus -Code 401 -NoPage
+            Set-PodeResponseStatus -Code 401 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "AuthenticationFailed"; message = "Invalid username or password" }
             return
         }
@@ -532,7 +532,7 @@ Start-PodeServer -Threads $Threads {
                 apiKey      = $sessionKey
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -592,7 +592,7 @@ Start-PodeServer -Threads $Threads {
 
             Write-PodeJsonResponse -Value $result
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -662,7 +662,7 @@ Start-PodeServer -Threads $Threads {
                 pages = [math]::Ceiling($total / $pageSize); users = $results
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -688,21 +688,21 @@ Start-PodeServer -Threads $Threads {
         }
 
         if ($missing) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Missing: $($missing -join ', ')" }
             return
         }
 
         $safeUsername = $body['username'] -replace '[^a-zA-Z0-9._-]', ''
         if ($safeUsername -ne $body['username'] -or $safeUsername.Length -lt 2 -or $safeUsername.Length -gt 20) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Username: 2-20 chars, alphanumeric/dot/hyphen/underscore" }
             return
         }
 
         $department = $body['department']
         if ($department -notin $script:ValidDepartments) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid department. Valid: $($script:ValidDepartments -join ', ')" }
             return
         }
@@ -711,12 +711,12 @@ Start-PodeServer -Threads $Threads {
 
         if ($userType -eq "student") {
             if ($batch -notin $script:ValidBatches) {
-                Set-PodeResponseStatus -Code 400 -NoPage
+                Set-PodeResponseStatus -Code 400 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid batch. Valid: $($script:ValidBatches -join ', ')" }
                 return
             }
             if ($program -notin $script:ValidPrograms) {
-                Set-PodeResponseStatus -Code 400 -NoPage
+                Set-PodeResponseStatus -Code 400 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid program. Valid: $($script:ValidPrograms -join ', ')" }
                 return
             }
@@ -729,7 +729,7 @@ Start-PodeServer -Threads $Threads {
 
         try {
             if (Get-ADUser -Filter "SamAccountName -eq '$safeUsername'" -ErrorAction SilentlyContinue) {
-                Set-PodeResponseStatus -Code 409 -NoPage
+                Set-PodeResponseStatus -Code 409 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "Conflict"; message = "User '$safeUsername' already exists" }
                 return
             }
@@ -763,7 +763,7 @@ Start-PodeServer -Threads $Threads {
                 role = $role; tempPassword = $tempPass; mustChange = $true; photo = $photoUrl
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -775,12 +775,12 @@ Start-PodeServer -Threads $Threads {
         $userList = $WebEvent.Data.users
 
         if (-not $userList -or $userList.Count -eq 0) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'users' array" }
             return
         }
         if ($userList.Count -gt 500) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Max 500 users per request" }
             return
         }
@@ -874,10 +874,10 @@ Start-PodeServer -Threads $Threads {
             Move-ADObject -Identity $user.DistinguishedName -TargetPath $disabledOU
             Write-PodeJsonResponse -Value @{ message = "User disabled and moved to Disabled Accounts"; username = $username }
         } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "User '$username' not found" }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -888,7 +888,7 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin"))) { return }
         $batch = $WebEvent.Parameters['batch']
         if ($batch -notin $script:ValidBatches) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid batch. Valid: $($script:ValidBatches -join ', ')" }
             return
         }
@@ -912,7 +912,7 @@ Start-PodeServer -Threads $Threads {
             }
             Write-PodeJsonResponse -Value @{ message = "Batch removal complete"; batch = $batch; total = @($users).Count; disabled = $disabled; errors = $errors }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -923,7 +923,7 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin"))) { return }
         $department = $WebEvent.Parameters['department']
         if ($department -notin $script:ValidDepartments) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid department. Valid: $($script:ValidDepartments -join ', ')" }
             return
         }
@@ -945,7 +945,7 @@ Start-PodeServer -Threads $Threads {
             }
             Write-PodeJsonResponse -Value @{ message = "Staff department removal complete"; department = $department; total = $users.Count; disabled = $disabled; errors = $errors }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -961,12 +961,12 @@ Start-PodeServer -Threads $Threads {
         $body = $WebEvent.Data
         $photoList = $body.photos
         if (-not $photoList -or $photoList.Count -eq 0) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'photos' array" }
             return
         }
         if ($photoList.Count -gt 500) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Max 500 photos per request" }
             return
         }
@@ -1007,7 +1007,7 @@ Start-PodeServer -Threads $Threads {
         $safeFile = $filename -replace '[^a-zA-Z0-9._-]', ''
         $filePath = Join-Path "C:\emis-api\photos" $safeFile
         if (-not (Test-Path $filePath)) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Photo not found" }
             return
         }
@@ -1031,20 +1031,20 @@ Start-PodeServer -Threads $Threads {
 
         # Students can only change their OWN password
         if ($WebEvent.Data['_role'] -eq 'student' -and $WebEvent.Data['_username'] -ne $username) {
-            Set-PodeResponseStatus -Code 403 -NoPage
+            Set-PodeResponseStatus -Code 403 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "Forbidden"; message = "Students can only change their own password" }
             return
         }
 
         if ([string]::IsNullOrWhiteSpace($body.currentPassword) -or [string]::IsNullOrWhiteSpace($body.newPassword)) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Both 'currentPassword' and 'newPassword' required" }
             return
         }
 
         $newPwd = $body.newPassword
         if ($newPwd.Length -lt 8) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Password must be at least 8 characters" }
             return
         }
@@ -1054,7 +1054,7 @@ Start-PodeServer -Threads $Threads {
         if ($newPwd -match '\d')     { $complexity++ }
         if ($newPwd -match '[^a-zA-Z0-9]') { $complexity++ }
         if ($complexity -lt 3) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Need 3 of: uppercase, lowercase, digit, special char" }
             return
         }
@@ -1072,7 +1072,7 @@ Start-PodeServer -Threads $Threads {
             } catch { $valid = $false }
 
             if (-not $valid) {
-                Set-PodeResponseStatus -Code 401 -NoPage
+                Set-PodeResponseStatus -Code 401 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "AuthenticationFailed"; message = "Current password is incorrect" }
                 return
             }
@@ -1083,10 +1083,10 @@ Start-PodeServer -Threads $Threads {
 
             Write-PodeJsonResponse -Value @{ message = "Password changed successfully"; username = $username }
         } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "User '$username' not found" }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1102,12 +1102,12 @@ Start-PodeServer -Threads $Threads {
             try {
                 $targetUser = Get-ADUser -Identity $username -Properties Department -ErrorAction Stop
                 if ($targetUser.Department -ne "Students") {
-                    Set-PodeResponseStatus -Code 403 -NoPage
+                    Set-PodeResponseStatus -Code 403 -NoErrorPage
                     Write-PodeJsonResponse -Value @{ error = "Forbidden"; message = "Teachers can only reset student passwords" }
                     return
                 }
             } catch {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "User '$username' not found" }
                 return
             }
@@ -1123,10 +1123,10 @@ Start-PodeServer -Threads $Threads {
 
             Write-PodeJsonResponse -Value @{ message = "Password reset"; username = $username; tempPassword = $tempPass; mustChange = $true }
         } catch [Microsoft.ActiveDirectory.Management.ADIdentityNotFoundException] {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "User '$username' not found" }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1156,7 +1156,7 @@ Start-PodeServer -Threads $Threads {
 
         $lab = Get-Lab -Name $labName
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab '$labName' not found" }
             return
         }
@@ -1185,7 +1185,7 @@ Start-PodeServer -Threads $Threads {
 
         $lab = Get-Lab -Name $labName
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab '$labName' not found" }
             return
         }
@@ -1267,7 +1267,7 @@ Start-PodeServer -Threads $Threads {
         $hostname = $WebEvent.Parameters['hostname']
         $pcInfo = Find-PC -Hostname $hostname
         if (-not $pcInfo) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not in any lab" }
             return
         }
@@ -1275,7 +1275,7 @@ Start-PodeServer -Threads $Threads {
             Stop-Computer -ComputerName $hostname -Force -ErrorAction Stop
             Write-PodeJsonResponse -Value @{ message = "Shutdown sent"; hostname = $hostname; lab = $pcInfo.Lab.Name }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1286,7 +1286,7 @@ Start-PodeServer -Threads $Threads {
         $hostname = $WebEvent.Parameters['hostname']
         $pcInfo = Find-PC -Hostname $hostname
         if (-not $pcInfo) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found" }
             return
         }
@@ -1294,7 +1294,7 @@ Start-PodeServer -Threads $Threads {
             Restart-Computer -ComputerName $hostname -Force -ErrorAction Stop
             Write-PodeJsonResponse -Value @{ message = "Restart sent"; hostname = $hostname; lab = $pcInfo.Lab.Name }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1305,7 +1305,7 @@ Start-PodeServer -Threads $Threads {
         $hostname = $WebEvent.Parameters['hostname']
         $pcInfo = Find-PC -Hostname $hostname
         if (-not $pcInfo) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found" }
             return
         }
@@ -1319,7 +1319,7 @@ Start-PodeServer -Threads $Threads {
             } -ErrorAction Stop
             Write-PodeJsonResponse -Value @{ message = "Logoff sent"; hostname = $hostname }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1337,7 +1337,7 @@ Start-PodeServer -Threads $Threads {
         $hostname = $body['hostname']
         $ip = $body['ip']
         if (-not $hostname -or -not $ip) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'hostname' and 'ip'" }
             return
         }
@@ -1377,7 +1377,7 @@ Start-PodeServer -Threads $Threads {
             $registry | ConvertTo-Json -Depth 5 | Set-Content $regFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "PC registered"; hostname = $hostname.ToUpper(); lab = $labName; ip = $ip }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1403,13 +1403,13 @@ Start-PodeServer -Threads $Threads {
         if ($body -is [hashtable]) { $msgText = $body['message'] }
         elseif ($body) { $msgText = $body.message }
         if ([string]::IsNullOrWhiteSpace($msgText)) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'message'"; debug_type = $body.GetType().Name; debug_keys = "$($body.Keys -join ',')" }
             return
         }
         $pcInfo = Find-PC -Hostname $hostname
         if (-not $pcInfo) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found" }
             return
         }
@@ -1434,7 +1434,7 @@ Start-PodeServer -Threads $Threads {
             $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "Message queued"; hostname = $hostname; text = $safeMsg }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1463,7 +1463,7 @@ Start-PodeServer -Threads $Threads {
             $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ hostname = $hostname; count = $pending.Count; messages = $pending }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1473,7 +1473,7 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin"))) { return }
         $lab = Get-Lab -Name $WebEvent.Parameters['lab']
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab not found" }
             return
         }
@@ -1490,7 +1490,7 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin"))) { return }
         $lab = Get-Lab -Name $WebEvent.Parameters['lab']
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab not found" }
             return
         }
@@ -1507,13 +1507,13 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin"))) { return }
         $body = $WebEvent.Data
         if ([string]::IsNullOrWhiteSpace($body.message)) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'message'" }
             return
         }
         $lab = Get-Lab -Name $WebEvent.Parameters['lab']
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab not found" }
             return
         }
@@ -1536,7 +1536,7 @@ Start-PodeServer -Threads $Threads {
         $hostname = $WebEvent.Parameters['hostname']
         $pcInfo = Find-PC -Hostname $hostname
         if (-not $pcInfo) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found" }
             return
         }
@@ -1551,7 +1551,7 @@ Start-PodeServer -Threads $Threads {
 
             Write-PodeJsonResponse -Value @{ hostname = $hostname; lab = $pcInfo.Lab.Name; count = $software.Count; software = @($software) }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1565,7 +1565,7 @@ Start-PodeServer -Threads $Threads {
         $body = $WebEvent.Data
         $pcInfo = Find-PC -Hostname $hostname
         if (-not $pcInfo) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found" }
             return
         }
@@ -1595,11 +1595,11 @@ Start-PodeServer -Threads $Threads {
                 Write-PodeJsonResponse -Value @{ message = "Install done"; hostname = $hostname; installer = $body.installer; exitCode = $result.exitCode }
             }
             else {
-                Set-PodeResponseStatus -Code 400 -NoPage
+                Set-PodeResponseStatus -Code 400 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Provide 'wingetId' or 'installer'" }
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1610,12 +1610,12 @@ Start-PodeServer -Threads $Threads {
         $body = $WebEvent.Data
         $lab = Get-Lab -Name $WebEvent.Parameters['lab']
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab not found" }
             return
         }
         if (-not $body.wingetId -and -not $body.installer) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Provide 'wingetId' or 'installer'" }
             return
         }
@@ -1677,7 +1677,7 @@ Start-PodeServer -Threads $Threads {
             $entries = @($log | Select-Object -Skip (($page - 1) * $pageSize) -First $pageSize)
             Write-PodeJsonResponse -Value @{ total = $total; page = $page; pageSize = $pageSize; entries = $entries }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1706,13 +1706,13 @@ Start-PodeServer -Threads $Threads {
         $body = $WebEvent.Data
         $domain = $body['domain']
         if ([string]::IsNullOrWhiteSpace($domain)) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'domain' required (e.g., facebook.com)" }
             return
         }
         $safeDomain = $domain.ToLower().Trim() -replace '[^a-z0-9.\-]', ''
         if ($safeDomain -notmatch '^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$') {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid domain format" }
             return
         }
@@ -1725,7 +1725,7 @@ Start-PodeServer -Threads $Threads {
             }
             $existing = $sites | Where-Object { $_.domain -eq $safeDomain }
             if ($existing) {
-                Set-PodeResponseStatus -Code 409 -NoPage
+                Set-PodeResponseStatus -Code 409 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "Conflict"; message = "'$safeDomain' is already blocked" }
                 return
             }
@@ -1741,7 +1741,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "website-block" -Target $safeDomain -Detail "Reason: $($entry.reason), Labs: $($entry.labs -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Site blocked"; domain = $safeDomain; labs = $entry.labs }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1759,7 +1759,7 @@ Start-PodeServer -Threads $Threads {
             }
             $found = $sites | Where-Object { $_.domain -eq $domain }
             if (-not $found) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "'$domain' is not blocked" }
                 return
             }
@@ -1768,7 +1768,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "website-unblock" -Target $domain -Detail "Unblocked" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Site unblocked"; domain = $domain }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1796,7 +1796,7 @@ Start-PodeServer -Threads $Threads {
         $body = $WebEvent.Data
         $procName = $body['processName']
         if ([string]::IsNullOrWhiteSpace($procName)) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'processName' required (e.g., chrome, vlc)" }
             return
         }
@@ -1809,7 +1809,7 @@ Start-PodeServer -Threads $Threads {
                 if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
             }
             if ($apps | Where-Object { $_.processName -eq $safeName }) {
-                Set-PodeResponseStatus -Code 409 -NoPage
+                Set-PodeResponseStatus -Code 409 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "Conflict"; message = "'$safeName' is already blocked" }
                 return
             }
@@ -1825,7 +1825,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "app-block" -Target $safeName -Detail "Labs: $($entry.labs -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "App blocked"; processName = $safeName; labs = $entry.labs }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1842,7 +1842,7 @@ Start-PodeServer -Threads $Threads {
                 if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
             }
             if (-not ($apps | Where-Object { $_.processName -eq $appName })) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "'$appName' is not blocked" }
                 return
             }
@@ -1851,7 +1851,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "app-unblock" -Target $appName -Detail "Unblocked" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "App unblocked"; processName = $appName }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1880,7 +1880,7 @@ Start-PodeServer -Threads $Threads {
                 Write-PodeJsonResponse -Value @{ lab = $labName; examMode = $false }
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1899,7 +1899,7 @@ Start-PodeServer -Threads $Threads {
         $body = $WebEvent.Data
         $lab = Get-Lab -Name $labName
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab '$labName' not found" }
             return
         }
@@ -1928,7 +1928,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "exam-mode-enable" -Target $labName -Detail "BlockInternet=$($config.blockInternet), AllowedSites=$($config.allowedSites -join ','), AllowedApps=$($config.allowedApps -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Exam mode enabled"; lab = $labName; config = $config }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1948,7 +1948,7 @@ Start-PodeServer -Threads $Threads {
                 }
             }
             if (-not $modes.ContainsKey($labName)) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Exam mode not active for '$labName'" }
                 return
             }
@@ -1957,7 +1957,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "exam-mode-disable" -Target $labName -Detail "Disabled" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Exam mode disabled"; lab = $labName }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -1981,7 +1981,7 @@ Start-PodeServer -Threads $Threads {
         $username = $body['username']
         $action   = $body['action']
         if (-not $hostname -or -not $action) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'hostname' and 'action' required" }
             return
         }
@@ -2006,7 +2006,7 @@ Start-PodeServer -Threads $Threads {
             $sessions | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "Session reported"; hostname = $hostname; action = $action }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2040,7 +2040,7 @@ Start-PodeServer -Threads $Threads {
                 sessions   = @($active | Sort-Object { $_.timestamp } -Descending)
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2069,7 +2069,7 @@ Start-PodeServer -Threads $Threads {
             $entries = @($sessions | Select-Object -Skip (($page - 1) * $pageSize) -First $pageSize)
             Write-PodeJsonResponse -Value @{ total = $total; page = $page; pageSize = $pageSize; entries = $entries }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2095,7 +2095,7 @@ Start-PodeServer -Threads $Threads {
             $idle = @($grouped.Values | Where-Object { $_.action -eq "idle" -and $_.lab -eq $labName })
             Write-PodeJsonResponse -Value @{ lab = $labName; idleCount = $idle.Count; idleUsers = $idle }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2127,7 +2127,7 @@ Start-PodeServer -Threads $Threads {
             if ($lab) { $active = @($active | Where-Object { $_.labs -contains "ALL" -or $_.labs -contains $lab }) }
             Write-PodeJsonResponse -Value @{ count = $active.Count; announcements = @($active | Sort-Object { $_.createdAt } -Descending) }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2138,7 +2138,7 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
         $body = $WebEvent.Data
         if ([string]::IsNullOrWhiteSpace($body['title']) -or [string]::IsNullOrWhiteSpace($body['message'])) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'title' and 'message' required" }
             return
         }
@@ -2164,7 +2164,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "announcement-create" -Target $entry.id -Detail "Title: $($entry.title)" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Announcement created"; announcement = $entry }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2181,7 +2181,7 @@ Start-PodeServer -Threads $Threads {
                 if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
             }
             if (-not ($announcements | Where-Object { $_.id -eq $annoId })) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Announcement '$annoId' not found" }
                 return
             }
@@ -2190,7 +2190,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "announcement-delete" -Target $annoId -Detail "Deleted" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Announcement deleted"; id = $annoId }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2212,7 +2212,7 @@ Start-PodeServer -Threads $Threads {
             }
             $pc = $registry | Where-Object { $_.Hostname -eq $hostname }
             if (-not $pc -or -not $pc.MAC) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found or MAC address not registered. PC must register with MAC first." }
                 return
             }
@@ -2221,7 +2221,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "wake-on-lan" -Target $hostname -Detail "MAC: $($pc.MAC)" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "WOL packet sent"; hostname = $hostname; mac = $pc.MAC }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2239,7 +2239,7 @@ Start-PodeServer -Threads $Threads {
             }
             $labPCs = @($registry | Where-Object { $_.Lab -eq $labName -and $_.MAC })
             if ($labPCs.Count -eq 0) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "No PCs with MAC addresses found for '$labName'" }
                 return
             }
@@ -2254,7 +2254,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "wake-all" -Target $labName -Detail "Sent $($ok.Count) WOL packets" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "WOL packets sent"; lab = $labName; sent = $ok.Count; failed = $fail.Count; details = @{ success = $ok; failed = $fail } }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2275,7 +2275,7 @@ Start-PodeServer -Threads $Threads {
             }
             Write-PodeJsonResponse -Value @{ count = $schedules.Count; schedules = $schedules }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2287,18 +2287,18 @@ Start-PodeServer -Threads $Threads {
         $labName = $WebEvent.Parameters['lab']
         $body = $WebEvent.Data
         if ([string]::IsNullOrWhiteSpace($body['time'])) {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'time' required (e.g., '20:00')" }
             return
         }
         if ($body['time'] -notmatch '^\d{2}:\d{2}$') {
-            Set-PodeResponseStatus -Code 400 -NoPage
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "time must be HH:MM format (e.g., '20:00')" }
             return
         }
         $lab = Get-Lab -Name $labName
         if (-not $lab) {
-            Set-PodeResponseStatus -Code 404 -NoPage
+            Set-PodeResponseStatus -Code 404 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab '$labName' not found" }
             return
         }
@@ -2327,7 +2327,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "schedule-create" -Target $labName -Detail "Shutdown at $($entry.time) on $($entry.days -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Schedule created"; schedule = $entry }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2344,7 +2344,7 @@ Start-PodeServer -Threads $Threads {
                 if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
             }
             if (-not ($schedules | Where-Object { $_.id -eq $schedId })) {
-                Set-PodeResponseStatus -Code 404 -NoPage
+                Set-PodeResponseStatus -Code 404 -NoErrorPage
                 Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Schedule '$schedId' not found" }
                 return
             }
@@ -2353,7 +2353,7 @@ Start-PodeServer -Threads $Threads {
             Write-AuditLog -Action "schedule-delete" -Target $schedId -Detail "Deleted" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Schedule deleted"; id = $schedId }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2454,7 +2454,7 @@ Start-PodeServer -Threads $Threads {
                 schedule      = $schedule
             }
         } catch {
-            Set-PodeResponseStatus -Code 500 -NoPage
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
@@ -2556,4 +2556,5 @@ Start-PodeServer -Threads $Threads {
     Write-Host "   GET    /api/v1/audit"
     Write-Host ""
 }
+
 
