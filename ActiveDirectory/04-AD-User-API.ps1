@@ -106,7 +106,7 @@
 # ================================================================
 
 param(
-    [int]$Port = 8443,
+    [int]$Port = 8080,
     [switch]$GenerateKey,
     [switch]$HttpOnly,
     [int]$Threads = 16
