@@ -1033,22 +1033,22 @@ Start-PodeServer -Threads $Threads {
         try {
             $safeMsg = $body.message -replace '[^a-zA-Z0-9 .,!?@#$%&()\-]', ''
             $mqFile = "C:\emis-api\message-queue.json"
-            Lock-PodeObject -ScriptBlock {
-                $queue = @()
-                if (Test-Path $mqFile) {
-                    $raw = Get-Content $mqFile -Raw -Encoding UTF8
-                    if ($raw) { $queue = @($raw | ConvertFrom-Json) }
-                }
-                $queue += @{
-                    id        = [guid]::NewGuid().ToString()
-                    hostname  = $hostname.ToUpper()
-                    message   = $safeMsg
-                    sender    = $WebEvent.Auth.User.Username
-                    timestamp = (Get-Date).ToString('o')
-                    delivered = $false
-                }
-                $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
+            $queue = @()
+            if (Test-Path $mqFile) {
+                $raw = Get-Content $mqFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $queue = @($raw | ConvertFrom-Json) }
             }
+            $senderName = 'admin'
+            if ($WebEvent.Auth -and $WebEvent.Auth.User) { $senderName = $WebEvent.Auth.User.Username }
+            $queue += @{
+                id        = [guid]::NewGuid().ToString()
+                hostname  = $hostname.ToUpper()
+                message   = $safeMsg
+                sender    = $senderName
+                timestamp = (Get-Date).ToString('o')
+                delivered = $false
+            }
+            $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "Message queued"; hostname = $hostname; text = $safeMsg }
         } catch {
             Set-PodeResponseStatus -Code 500
@@ -1066,21 +1066,18 @@ Start-PodeServer -Threads $Threads {
         try {
             $pending = @()
             $mqFile = "C:\emis-api\message-queue.json"
-            Lock-PodeObject -ScriptBlock {
-                $queue = @()
-                if (Test-Path $mqFile) {
-                    $raw = Get-Content $mqFile -Raw -Encoding UTF8
-                    if ($raw) { $queue = @($raw | ConvertFrom-Json) }
-                }
-                $pending = @($queue | Where-Object { $_.hostname -eq $hostname -and -not $_.delivered })
-                # Mark as delivered
-                foreach ($msg in $queue) {
-                    if ($msg.hostname -eq $hostname -and -not $msg.delivered) {
-                        $msg.delivered = $true
-                    }
-                }
-                $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
+            $queue = @()
+            if (Test-Path $mqFile) {
+                $raw = Get-Content $mqFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $queue = @($raw | ConvertFrom-Json) }
             }
+            $pending = @($queue | Where-Object { $_.hostname -eq $hostname -and -not $_.delivered })
+            foreach ($msg in $queue) {
+                if ($msg.hostname -eq $hostname -and -not $msg.delivered) {
+                    $msg.delivered = $true
+                }
+            }
+            $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ hostname = $hostname; count = $pending.Count; messages = $pending }
         } catch {
             Set-PodeResponseStatus -Code 500
