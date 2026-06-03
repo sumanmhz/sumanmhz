@@ -1062,7 +1062,7 @@ Start-PodeServer -Threads $Threads {
             $valid = $false
             try {
                 $ctx = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Domain)
-                $credential = if ($user.UserPrincipalName) { $user.UserPrincipalName } else { $user.SamAccountName }
+                $credential = if ($user.UserPrincipalName) { $user.UserPrincipalName } else { "$($user.SamAccountName)@emis.local" }
                 $valid = $ctx.ValidateCredentials($credential, $body.currentPassword)
                 $ctx.Dispose()
             } catch { $valid = $false }
