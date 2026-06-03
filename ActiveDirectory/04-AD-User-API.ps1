@@ -278,8 +278,13 @@ Start-PodeServer -Threads $Threads {
         }
 
         # Attach caller identity to request
-        if ($null -eq $WebEvent.Data -or $WebEvent.Data -isnot [hashtable]) {
+        if ($null -eq $WebEvent.Data) {
             $WebEvent.Data = @{}
+        } elseif ($WebEvent.Data -isnot [hashtable]) {
+            # Convert PSObject to hashtable preserving body data
+            $ht = @{}
+            $WebEvent.Data.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value }
+            $WebEvent.Data = $ht
         }
         $WebEvent.Data['_role']     = $matched.Role
         $WebEvent.Data['_name']     = $matched.Name
