@@ -95,7 +95,7 @@ Located at `C:\emis-api\api-keys.json`:
 | `Administration` | Campus Administration |
 | `IT` | IT Department |
 
-### Programs (7)
+### Programs (10)
 | Code | Department | Level |
 |------|-----------|-------|
 | `BCT` | DOECE | Bachelor — Computer Engineering |
@@ -104,7 +104,10 @@ Located at `C:\emis-api\api-keys.json`:
 | `BAR` | DOA | Bachelor — Architecture |
 | `BME` | DAME | Bachelor — Mechanical Engineering |
 | `BIE` | DOIE | Bachelor — Industrial Engineering |
-| `MMDM` | DAME | Masters |
+| `BAM` | DAME | Bachelor — Automobile Engineering |
+| `MMDM` | DAME | M.Sc. — Mechanical Design & Manufacturing |
+| `MEE` | DOCE | M.Sc. — Earthquake Engineering |
+| `MIISE` | DOECE | M.Sc. — Informatics & Intelligent Systems Engineering |
 
 ### Batches
 `Batch-2080`, `Batch-2081`, `Batch-2082`, `Batch-2083`, `Batch-2084`

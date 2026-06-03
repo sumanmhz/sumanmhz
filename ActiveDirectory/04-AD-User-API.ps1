@@ -227,9 +227,9 @@ Start-PodeServer -Threads $Threads {
     if (-not (Test-Path $pcRegistryFile)) { '[]' | Set-Content $pcRegistryFile -Encoding UTF8 }
 
     $script:ValidBatches     = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
-    $script:ValidPrograms    = @("BCT", "BEI", "BCE", "BAR", "BME", "BIE", "MMDM")
+    $script:ValidPrograms    = @("BCT", "BEI", "BCE", "BAR", "BME", "BIE", "BAM", "MMDM", "MEE", "MIISE")
     $script:ValidDepartments = @("DOAS", "DOA", "DAME", "DOCE", "DOECE", "DOIE", "Administration", "IT")
-    $script:ProgramToDept    = @{ BCT="DOECE"; BEI="DOECE"; BCE="DOCE"; BAR="DOA"; BME="DAME"; BIE="DOIE"; MMDM="DAME" }
+    $script:ProgramToDept    = @{ BCT="DOECE"; BEI="DOECE"; BCE="DOCE"; BAR="DOA"; BME="DAME"; BIE="DOIE"; BAM="DAME"; MMDM="DAME"; MEE="DOCE"; MIISE="DOECE" }
     $script:EmailDomain      = "tcioe.edu.np"
 
     # Lab-to-subnet mapping
@@ -279,7 +279,7 @@ Start-PodeServer -Threads $Threads {
     # Format: THA080BCT002 → THA prefix, 080 batch, BCT program, 002 serial
     function Parse-RollNumber {
         param([string]$RollNo)
-        if ($RollNo -match '^THA(\d{3})(BCT|BEI|BCE|BAR|BME|BIE|MMDM)(\d+)$') {
+        if ($RollNo -match '^THA(\d{3})(BCT|BEI|BCE|BAR|BME|BIE|BAM|MMDM|MEE|MIISE)(\d+)$') {
             return @{ Batch = "Batch-20$($Matches[1])"; Program = $Matches[2]; Serial = $Matches[3]; Valid = $true }
         }
         return @{ Valid = $false }
@@ -547,7 +547,7 @@ Start-PodeServer -Threads $Threads {
             $results = @($users | ForEach-Object {
                 $dn = $_.DistinguishedName
                 $ouMatch = [regex]::Match($dn, 'OU=(Batch-\d+)')
-                $progMatch = [regex]::Match($dn, 'OU=(BCT|BEI|BCE|BAR|BME|BIE|MMDM)')
+                $progMatch = [regex]::Match($dn, 'OU=(BCT|BEI|BCE|BAR|BME|BIE|BAM|MMDM|MEE|MIISE)')
                 $deptMatch = [regex]::Match($dn, 'OU=(DOAS|DOA|DAME|DOCE|DOECE|DOIE|Administration|IT)')
                 @{
                     username    = $_.SamAccountName
