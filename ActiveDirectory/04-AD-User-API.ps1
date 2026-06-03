@@ -227,9 +227,9 @@ Start-PodeServer -Threads $Threads {
     if (-not (Test-Path $pcRegistryFile)) { '[]' | Set-Content $pcRegistryFile -Encoding UTF8 }
 
     $script:ValidBatches     = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
-    $script:ValidPrograms    = @("BCE", "BEI", "BAR", "BAE", "BME", "BCiE", "BIE", "MSc-IIS", "MSc-EQ", "PhD-ME", "BAS")
+    $script:ValidPrograms    = @("BCT", "BEI", "BCE", "BAR", "BME", "BIE", "MMDM")
     $script:ValidDepartments = @("DOAS", "DOA", "DAME", "DOCE", "DOECE", "DOIE", "Administration", "IT")
-    $script:ProgramToDept    = @{ BCE="DOECE"; BEI="DOECE"; BAR="DOA"; BAE="DAME"; BME="DAME"; BCiE="DOCE"; BIE="DOIE"; "MSc-IIS"="DOECE"; "MSc-EQ"="DOCE"; "PhD-ME"="DAME"; BAS="DOAS" }
+    $script:ProgramToDept    = @{ BCT="DOECE"; BEI="DOECE"; BCE="DOCE"; BAR="DOA"; BME="DAME"; BIE="DOIE"; MMDM="DAME" }
     $script:EmailDomain      = "tcioe.edu.np"
 
     # Lab-to-subnet mapping
@@ -276,19 +276,10 @@ Start-PodeServer -Threads $Threads {
     }
 
     # - Helper: Parse roll number → batch, program, serial -
+    # Format: THA080BCT002 → THA prefix, 080 batch, BCT program, 002 serial
     function Parse-RollNumber {
         param([string]$RollNo)
-        if ($RollNo -match '^(\d{3})([A-Za-z]+-?[A-Za-z]*)(\d+)$') {
-            $batchNum = $Matches[1]
-            $prog = $Matches[2]
-            $serial = $Matches[3]
-            # Validate program
-            if ($prog -in @("BCE","BEI","BAR","BAE","BME","BCiE","BIE","BAS")) {
-                return @{ Batch = "Batch-20$batchNum"; Program = $prog; Serial = $serial; Valid = $true }
-            }
-        }
-        # Try MSc/PhD patterns
-        if ($RollNo -match '^(\d{3})(MSc-IIS|MSc-EQ|PhD-ME)(\d+)$') {
+        if ($RollNo -match '^THA(\d{3})(BCT|BEI|BCE|BAR|BME|BIE|MMDM)(\d+)$') {
             return @{ Batch = "Batch-20$($Matches[1])"; Program = $Matches[2]; Serial = $Matches[3]; Valid = $true }
         }
         return @{ Valid = $false }
@@ -556,7 +547,7 @@ Start-PodeServer -Threads $Threads {
             $results = @($users | ForEach-Object {
                 $dn = $_.DistinguishedName
                 $ouMatch = [regex]::Match($dn, 'OU=(Batch-\d+)')
-                $progMatch = [regex]::Match($dn, 'OU=(BCE|BEI|BAR|BAE|BME|BCiE|BIE|BAS|MSc-IIS|MSc-EQ|PhD-ME)')
+                $progMatch = [regex]::Match($dn, 'OU=(BCT|BEI|BCE|BAR|BME|BIE|MMDM)')
                 $deptMatch = [regex]::Match($dn, 'OU=(DOAS|DOA|DAME|DOCE|DOECE|DOIE|Administration|IT)')
                 @{
                     username    = $_.SamAccountName

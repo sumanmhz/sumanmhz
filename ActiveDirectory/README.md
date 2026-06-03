@@ -95,20 +95,16 @@ Located at `C:\emis-api\api-keys.json`:
 | `Administration` | Campus Administration |
 | `IT` | IT Department |
 
-### Programs (11)
+### Programs (7)
 | Code | Department | Level |
 |------|-----------|-------|
-| `BCE` | DOECE | Bachelor |
-| `BEI` | DOECE | Bachelor |
-| `BAR` | DOA | Bachelor |
-| `BAE` | DAME | Bachelor |
-| `BME` | DAME | Bachelor |
-| `BCiE` | DOCE | Bachelor |
-| `BIE` | DOIE | Bachelor |
-| `BAS` | DOAS | Bachelor |
-| `MSc-IIS` | DOECE | Masters |
-| `MSc-EQ` | DOCE | Masters |
-| `PhD-ME` | DAME | PhD |
+| `BCT` | DOECE | Bachelor — Computer Engineering |
+| `BEI` | DOECE | Bachelor — Electronics & Information |
+| `BCE` | DOCE | Bachelor — Civil Engineering |
+| `BAR` | DOA | Bachelor — Architecture |
+| `BME` | DAME | Bachelor — Mechanical Engineering |
+| `BIE` | DOIE | Bachelor — Industrial Engineering |
+| `MMDM` | DAME | Masters |
 
 ### Batches
 `Batch-2080`, `Batch-2081`, `Batch-2082`, `Batch-2083`, `Batch-2084`
@@ -133,11 +129,11 @@ DC=emis,DC=local
 
 ### User Types
 
-**Students** — username = roll number (e.g., `080BCE001`)
+**Students** — username = THA + batch + program + serial (e.g., `THA080BCT002`)
 ```
-Username:  080BCE001
-Email:     080BCE001@tcioe.edu.np
-OU:        OU=Batch-2080,OU=BCE,OU=Students,OU=EMIS Users,DC=emis,DC=local
+Username:  THA080BCT002
+Email:     THA080BCT002@tcioe.edu.np
+OU:        OU=Batch-2080,OU=BCT,OU=Students,OU=EMIS Users,DC=emis,DC=local
 ```
 
 **Staff/Teachers** — username = hajiri ID (employee ID, e.g., `10234`)
@@ -210,12 +206,12 @@ curl -X POST http://localhost:8080/api/v1/users \
     "userType": "student",
     "firstName": "Ram",
     "lastName": "Sharma",
-    "username": "080BCE001",
-    "email": "080BCE001@tcioe.edu.np",
+    "username": "THA080BCT001",
+    "email": "THA080BCT001@tcioe.edu.np",
     "department": "DOECE",
     "batch": "Batch-2080",
-    "program": "BCE",
-    "photo": "080BCE001.jpg"
+    "program": "BCT",
+    "photo": "THA080BCT001.jpg"
   }'
 ```
 
@@ -240,7 +236,7 @@ curl -X POST http://localhost:8080/api/v1/users \
 | `userType` | `"student"` | `"staff"` | Required |
 | `firstName` | Required | Required | |
 | `lastName` | Required | Required | |
-| `username` | Required (roll no) | Required (hajiri ID) | 2-20 chars |
+| `username` | Required (THA+roll) | Required (hajiri ID) | 2-20 chars |
 | `email` | Required | Required | |
 | `department` | Required | Required | Must be valid |
 | `batch` | Required | — | e.g., `Batch-2080` |
@@ -253,16 +249,16 @@ curl -X POST http://localhost:8080/api/v1/users \
 ```json
 {
   "message": "User created",
-  "username": "080BCE001",
-  "email": "080BCE001@tcioe.edu.np",
+  "username": "THA080BCT001",
+  "email": "THA080BCT001@tcioe.edu.np",
   "userType": "student",
   "department": "DOECE",
   "batch": "Batch-2080",
-  "program": "BCE",
+  "program": "BCT",
   "role": "Role-Students",
   "tempPassword": "Emis@482910",
   "mustChange": true,
-  "photo": "/api/v1/photos/080BCE001.jpg"
+  "photo": "/api/v1/photos/THA080BCT001.jpg"
 }
 ```
 
@@ -279,22 +275,22 @@ curl -X POST http://localhost:8080/api/v1/users/bulk \
         "userType": "student",
         "firstName": "Ram",
         "lastName": "Sharma",
-        "username": "080BCE001",
-        "email": "080BCE001@tcioe.edu.np",
+        "username": "THA080BCT001",
+        "email": "THA080BCT001@tcioe.edu.np",
         "department": "DOECE",
         "batch": "Batch-2080",
-        "program": "BCE",
-        "photo": "080BCE001.jpg"
+        "program": "BCT",
+        "photo": "THA080BCT001.jpg"
       },
       {
         "userType": "student",
         "firstName": "Sita",
         "lastName": "KC",
-        "username": "080BCE002",
-        "email": "080BCE002@tcioe.edu.np",
+        "username": "THA080BCT002",
+        "email": "THA080BCT002@tcioe.edu.np",
         "department": "DOECE",
         "batch": "Batch-2080",
-        "program": "BCE"
+        "program": "BCT"
       }
     ]
   }'
@@ -314,7 +310,7 @@ curl -X POST http://localhost:8080/api/v1/users/bulk \
 Disable a user and move to `OU=Disabled Accounts`.
 ```bash
 curl -X DELETE -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
-  http://localhost:8080/api/v1/users/080BCE001
+  http://localhost:8080/api/v1/users/THA080BCT001
 ```
 
 #### `DELETE /api/v1/users/batch/:batch`
@@ -346,8 +342,8 @@ curl -X POST http://localhost:8080/api/v1/photos/bulk \
   -H "Content-Type: application/json" \
   -d '{
     "photos": [
-      { "filename": "080BCE001.jpg", "base64": "/9j/4AAQ..." },
-      { "filename": "080BCE002.jpg", "base64": "/9j/4BBR..." }
+      { "filename": "THA080BCT001.jpg", "base64": "/9j/4AAQ..." },
+      { "filename": "THA080BCT002.jpg", "base64": "/9j/4BBR..." }
     ]
   }'
 ```
@@ -361,7 +357,7 @@ curl -X POST http://localhost:8080/api/v1/photos/bulk \
 {
   "summary": { "total": 2, "saved": 2, "failed": 0 },
   "saved": [
-    { "filename": "080BCE001.jpg", "size": 45230, "url": "/api/v1/photos/080BCE001.jpg" }
+    { "filename": "THA080BCT001.jpg", "size": 45230, "url": "/api/v1/photos/THA080BCT001.jpg" }
   ],
   "failed": []
 }
@@ -370,13 +366,13 @@ curl -X POST http://localhost:8080/api/v1/photos/bulk \
 #### `GET /api/v1/photos/:filename`
 Serve a photo file.
 ```bash
-curl http://localhost:8080/api/v1/photos/080BCE001.jpg -o photo.jpg
+curl http://localhost:8080/api/v1/photos/THA080BCT001.jpg -o photo.jpg
 ```
 
 **Workflow:**
 1. Upload photos in bulk → `POST /api/v1/photos/bulk`
-2. Create users with `"photo": "080BCE001.jpg"` → sets AD `thumbnailPhoto` automatically
-3. View any photo → `GET /api/v1/photos/080BCE001.jpg`
+2. Create users with `"photo": "THA080BCT001.jpg"` → sets AD `thumbnailPhoto` automatically
+3. View any photo → `GET /api/v1/photos/THA080BCT001.jpg`
 
 ---
 
@@ -385,7 +381,7 @@ curl http://localhost:8080/api/v1/photos/080BCE001.jpg -o photo.jpg
 #### `PUT /api/v1/users/:username/password`
 Change own password (students can only change their own).
 ```bash
-curl -X PUT http://localhost:8080/api/v1/users/080BCE001/password \
+curl -X PUT http://localhost:8080/api/v1/users/THA080BCT001/password \
   -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
   -H "Content-Type: application/json" \
   -d '{"oldPassword":"Emis@482910","newPassword":"MyNew@Pass1"}'
@@ -395,7 +391,7 @@ curl -X PUT http://localhost:8080/api/v1/users/080BCE001/password \
 Admin/teacher reset password (generates new temp password).
 ```bash
 curl -X POST -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
-  http://localhost:8080/api/v1/users/080BCE001/reset
+  http://localhost:8080/api/v1/users/THA080BCT001/reset
 ```
 
 ---
@@ -533,8 +529,8 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/v1/health"
 
 # Create student
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/users" -Headers $h -Body (@{
-    userType="student"; firstName="Ram"; lastName="Sharma"; username="080BCE001"
-    email="080BCE001@tcioe.edu.np"; department="DOECE"; batch="Batch-2080"; program="BCE"
+    userType="student"; firstName="Ram"; lastName="Sharma"; username="THA080BCT001"
+    email="THA080BCT001@tcioe.edu.np"; department="DOECE"; batch="Batch-2080"; program="BCT"
 } | ConvertTo-Json)
 
 # Create teacher
@@ -549,7 +545,7 @@ Invoke-RestMethod -Uri "http://localhost:8080/api/v1/users?dept=DOECE" -Headers 
 # Upload photo
 $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\photo.jpg"))
 Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/photos/bulk" -Headers $h -Body (@{
-    photos = @(@{ filename="080BCE001.jpg"; base64=$b64 })
+    photos = @(@{ filename="THA080BCT001.jpg"; base64=$b64 })
 } | ConvertTo-Json -Depth 3)
 
 # Send message
@@ -558,7 +554,7 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:8080/api/v1/pcs/DESKTOP-O8
 } | ConvertTo-Json)
 
 # Delete user
-Invoke-RestMethod -Method Delete -Uri "http://localhost:8080/api/v1/users/080BCE001" -Headers $h
+Invoke-RestMethod -Method Delete -Uri "http://localhost:8080/api/v1/users/THA080BCT001" -Headers $h
 ```
 
 ---
