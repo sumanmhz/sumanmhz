@@ -215,6 +215,8 @@ Start-PodeServer -Threads $Threads {
     $script:LabFilePath = $LabFile
     $script:MsgQueueFile = Join-Path $ConfigDir "message-queue.json"
     if (-not (Test-Path $script:MsgQueueFile)) { '[]' | Set-Content $script:MsgQueueFile -Encoding UTF8 }
+    $pcRegistryFile = "C:\emis-api\pc-registry.json"
+    if (-not (Test-Path $pcRegistryFile)) { '[]' | Set-Content $pcRegistryFile -Encoding UTF8 }
 
     $script:ValidBatches     = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
     $script:ValidPrograms    = @("Computer Engineering", "Electronics Engineering", "Civil Engineering", "Electrical Engineering")
@@ -948,13 +950,21 @@ Start-PodeServer -Threads $Threads {
     #              PC MANAGEMENT (superadmin only)
     # -
 
-    # - Helper: find PC across all labs -
+    # - Helper: find PC across all labs + registry -
     function Find-PC {
         param([string]$Hostname)
+        # Check labs.json
         $labs = Get-Labs
         foreach ($lab in $labs) {
             $pc = $lab.PCs | Where-Object { $_.Hostname -eq $Hostname }
             if ($pc) { return @{ Lab = $lab; PC = $pc } }
+        }
+        # Check pc-registry.json
+        $regFile = "C:\emis-api\pc-registry.json"
+        if (Test-Path $regFile) {
+            $registry = @(Get-Content $regFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+            $found = $registry | Where-Object { $_.Hostname -eq $Hostname }
+            if ($found) { return @{ Lab = @{ Name = $found.Lab }; PC = $found } }
         }
         return $null
     }
@@ -1020,6 +1030,72 @@ Start-PodeServer -Threads $Threads {
             Set-PodeResponseStatus -Code 500
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
+    }
+
+    # - POST /api/v1/pcs/register - (lab PCs auto-register on boot)
+    Add-PodeRoute -Method Post -Path '/api/v1/pcs/register' -ScriptBlock {
+        $apiKey = $WebEvent.Request.Headers['X-API-Key']
+        if ($apiKey -ne 'polling-agent') {
+            if (-not (Assert-Role @("superadmin"))) { return }
+        }
+        $body = $WebEvent.Data
+        if ($body -isnot [hashtable]) {
+            $ht = @{}; $body.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value }; $body = $ht
+        }
+        $hostname = $body['hostname']
+        $ip = $body['ip']
+        if (-not $hostname -or -not $ip) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'hostname' and 'ip'" }
+            return
+        }
+        try {
+            $regFile = "C:\emis-api\pc-registry.json"
+            $registry = @()
+            if (Test-Path $regFile) {
+                $raw = Get-Content $regFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+            }
+            # Determine lab from subnet
+            $subnet = ($ip -replace '\.\d+$', '.0/24')
+            $labName = if ($body['lab']) { $body['lab'] } else { "Auto-$($ip -replace '\.\d+$', '')" }
+            # Update or add
+            $existing = $registry | Where-Object { $_.Hostname -eq $hostname.ToUpper() }
+            if ($existing) {
+                $existing.IP = $ip
+                $existing.Subnet = $subnet
+                $existing.Lab = $labName
+                $existing.LastSeen = (Get-Date).ToString('o')
+                $existing.Online = $true
+            } else {
+                $registry += @{
+                    Hostname  = $hostname.ToUpper()
+                    IP        = $ip
+                    Subnet    = $subnet
+                    Lab       = $labName
+                    FirstSeen = (Get-Date).ToString('o')
+                    LastSeen  = (Get-Date).ToString('o')
+                    Online    = $true
+                }
+            }
+            $registry | ConvertTo-Json -Depth 5 | Set-Content $regFile -Encoding UTF8
+            Write-PodeJsonResponse -Value @{ message = "PC registered"; hostname = $hostname.ToUpper(); lab = $labName; ip = $ip }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - GET /api/v1/pcs/registered - (list all registered PCs)
+    Add-PodeRoute -Method Get -Path '/api/v1/pcs/registered' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $regFile = "C:\emis-api\pc-registry.json"
+        $registry = @()
+        if (Test-Path $regFile) {
+            $raw = Get-Content $regFile -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+        }
+        Write-PodeJsonResponse -Value @{ count = $registry.Count; pcs = $registry }
     }
 
     # - POST /api/v1/pcs/:hostname/message - (queues message for polling)

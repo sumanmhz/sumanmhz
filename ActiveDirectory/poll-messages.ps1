@@ -31,6 +31,16 @@ while ($retries -lt 10) {
     }
 }
 
+# Auto-register this PC with the API
+try {
+    $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.*' } | Select-Object -First 1).IPAddress
+    $regBody = @{ hostname = $Hostname; ip = $ip } | ConvertTo-Json -Compress
+    $result = Invoke-RestMethod -Uri "http://10.10.100.3:8080/api/v1/pcs/register" -Method POST -Headers @{ "X-API-Key" = "polling-agent"; "Content-Type" = "application/json" } -Body $regBody -TimeoutSec 10
+    Write-Log "Registered: $($result.hostname) ($ip) in $($result.lab)"
+} catch {
+    Write-Log "Registration failed: $($_.Exception.Message)"
+}
+
 # Main polling loop
 while ($true) {
     try {
