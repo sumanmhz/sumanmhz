@@ -558,10 +558,11 @@ Start-PodeServer -Threads $Threads {
         try {
             # --- Lab & PC stats ---
             $labs = Get-Labs
+            $pinger = New-Object System.Net.NetworkInformation.Ping
             $labStats = @($labs | ForEach-Object {
                 $onlineCount = 0
                 foreach ($pc in $_.PCs) {
-                    if (Test-Connection -ComputerName $pc.IP -Count 1 -Quiet -TimeoutSeconds 1) { $onlineCount++ }
+                    try { if ($pinger.Send($pc.IP, 1000).Status -eq 'Success') { $onlineCount++ } } catch {}
                 }
                 @{
                     name     = $_.Name
@@ -1313,8 +1314,9 @@ Start-PodeServer -Threads $Threads {
         }
 
         # Ping all PCs
+        $pinger = New-Object System.Net.NetworkInformation.Ping
         $pcStatus = @($lab.PCs | ForEach-Object {
-            $online = Test-Connection -ComputerName $_.IP -Count 1 -Quiet -TimeoutSeconds 2
+            $online = try { $pinger.Send($_.IP, 1500).Status -eq 'Success' } catch { $false }
             @{ hostname = $_.Hostname; ip = $_.IP; online = $online }
         })
 
