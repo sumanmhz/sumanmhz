@@ -388,7 +388,7 @@ Change own password (students can only change their own).
 curl -X PUT http://localhost:8080/api/v1/users/THA080BCT001/password \
   -H "X-API-Key: Moa6YPNPgtx9HPgueNTKCN6n1JaHJWuvoUF2BiX3cs" \
   -H "Content-Type: application/json" \
-  -d '{"oldPassword":"Emis@482910","newPassword":"MyNew@Pass1"}'
+  -d '{"currentPassword":"Emis@482910","newPassword":"MyNew@Pass1"}'
 ```
 
 #### `POST /api/v1/users/:username/reset`
