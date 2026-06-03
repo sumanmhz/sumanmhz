@@ -24,7 +24,7 @@
 #   GET    /api/v1/auth/me                         - Who am I (from key)
 #
 #   --- Dashboard ---
-#   GET    /api/v1/dashboard                       - Aggregate stats (users, labs, PCs)
+#   GET    /api/v1/dashboard                       - Aggregate stats (users, labs, PCs, sessions, blocking, etc.)
 #
 #   --- Users (superadmin) ---
 #   GET    /api/v1/users                          - List/search users
@@ -556,6 +556,7 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin", "teacher"))) { return }
 
         try {
+            # --- Lab & PC stats ---
             $labs = Get-Labs
             $labStats = @($labs | ForEach-Object {
                 $onlineCount = 0
@@ -571,27 +572,160 @@ Start-PodeServer -Threads $Threads {
                 }
             })
 
-            $totalPCs = ($labStats | Measure-Object -Property total -Sum).Sum
+            $totalPCs  = ($labStats | Measure-Object -Property total -Sum).Sum
             $onlinePCs = ($labStats | Measure-Object -Property online -Sum).Sum
 
-            $result = @{
-                labs      = $labStats
-                totalPCs  = $totalPCs
-                onlinePCs = $onlinePCs
-                timestamp = (Get-Date -Format "o")
+            # --- Active sessions ---
+            $sessFile = "C:\emis-api\sessions.json"
+            $activeSessions = 0; $idleSessions = 0; $sessionsByLab = @{}
+            if (Test-Path $sessFile) {
+                $raw = Get-Content $sessFile -Raw -ErrorAction SilentlyContinue
+                if ($raw) {
+                    $allSess = [array]($raw | ConvertFrom-Json)
+                    $cutoff = (Get-Date).AddHours(-2).ToString('o')
+                    $active = @($allSess | Where-Object { $_.action -ne 'logout' -and $_.timestamp -gt $cutoff })
+                    $activeSessions = $active.Count
+                    $idleSessions = @($active | Where-Object { $_.action -eq 'idle' }).Count
+                    foreach ($s in $active) {
+                        $lab = if ($s.lab) { $s.lab } else { "Unknown" }
+                        if (-not $sessionsByLab[$lab]) { $sessionsByLab[$lab] = 0 }
+                        $sessionsByLab[$lab]++
+                    }
+                }
             }
 
-            # Superadmin gets user counts too
+            # --- Announcements ---
+            $annFile = "C:\emis-api\announcements.json"
+            $activeAnnouncements = 0
+            if (Test-Path $annFile) {
+                $raw = Get-Content $annFile -Raw -ErrorAction SilentlyContinue
+                if ($raw) {
+                    $anns = [array]($raw | ConvertFrom-Json)
+                    $now = Get-Date
+                    $activeAnnouncements = @($anns | Where-Object { -not $_.expiresAt -or [datetime]$_.expiresAt -gt $now }).Count
+                }
+            }
+
+            # --- Exam mode ---
+            $examFile = "C:\emis-api\exam-mode.json"
+            $examModeLabs = @()
+            if (Test-Path $examFile) {
+                $raw = Get-Content $examFile -Raw -ErrorAction SilentlyContinue
+                if ($raw) {
+                    $modes = $raw | ConvertFrom-Json
+                    $modes.PSObject.Properties | ForEach-Object {
+                        if ($_.Value.enabled -eq $true) { $examModeLabs += $_.Name }
+                    }
+                }
+            }
+
+            # --- Scheduled shutdowns ---
+            $schedFile = "C:\emis-api\schedules.json"
+            $activeSchedules = 0
+            if (Test-Path $schedFile) {
+                $raw = Get-Content $schedFile -Raw -ErrorAction SilentlyContinue
+                if ($raw) {
+                    $scheds = [array]($raw | ConvertFrom-Json)
+                    $activeSchedules = @($scheds | Where-Object { $_.enabled -eq $true }).Count
+                }
+            }
+
+            $result = @{
+                labs             = $labStats
+                totalPCs         = $totalPCs
+                onlinePCs        = $onlinePCs
+                offlinePCs       = $totalPCs - $onlinePCs
+                totalLabs        = $labs.Count
+                sessions         = @{
+                    active       = $activeSessions
+                    idle         = $idleSessions
+                    byLab        = $sessionsByLab
+                }
+                announcements    = $activeAnnouncements
+                examModeLabs     = $examModeLabs
+                activeSchedules  = $activeSchedules
+                timestamp        = (Get-Date -Format "o")
+            }
+
+            # Superadmin gets full user breakdown + blocking stats
             if ($WebEvent.Data['_role'] -eq 'superadmin') {
                 $base = "OU=EMIS Users,DC=emis,DC=local"
-                $totalUsers = (Get-ADUser -SearchBase $base -Filter * | Measure-Object).Count
-                $enabledUsers = (Get-ADUser -SearchBase $base -Filter 'Enabled -eq $true' | Measure-Object).Count
-                $students = (Get-ADUser -SearchBase "OU=Students,$base" -Filter * | Measure-Object).Count
-                $faculty = (Get-ADUser -SearchBase "OU=Faculty,$base" -Filter * -ErrorAction SilentlyContinue | Measure-Object).Count
-                $result.totalUsers   = $totalUsers
-                $result.enabledUsers = $enabledUsers
-                $result.students     = $students
-                $result.faculty      = $faculty
+                $allUsers = Get-ADUser -SearchBase $base -Filter * -Properties Enabled, DistinguishedName
+                $totalUsers   = ($allUsers | Measure-Object).Count
+                $enabledUsers = @($allUsers | Where-Object { $_.Enabled -eq $true }).Count
+                $disabledUsers = $totalUsers - $enabledUsers
+
+                # Students total
+                $studentUsers = @($allUsers | Where-Object { $_.DistinguishedName -match 'OU=Students' })
+                $students = $studentUsers.Count
+
+                # Students by program
+                $byProgram = @{}
+                foreach ($prog in $script:ValidPrograms) {
+                    $byProgram[$prog] = @($studentUsers | Where-Object { $_.DistinguishedName -match "OU=$prog" }).Count
+                }
+
+                # Students by batch
+                $byBatch = @{}
+                foreach ($b in $script:ValidBatches) {
+                    $byBatch[$b] = @($studentUsers | Where-Object { $_.DistinguishedName -match "OU=$b" }).Count
+                }
+
+                # Staff total
+                $staffUsers = @($allUsers | Where-Object { $_.DistinguishedName -match 'OU=Staff' })
+                $staff = $staffUsers.Count
+
+                # Staff by department
+                $byDepartment = @{}
+                foreach ($dept in $script:ValidDepartments) {
+                    $byDepartment[$dept] = @($staffUsers | Where-Object { $_.DistinguishedName -match "OU=$dept" }).Count
+                }
+
+                $result.users = @{
+                    total         = $totalUsers
+                    enabled       = $enabledUsers
+                    disabled      = $disabledUsers
+                    students      = $students
+                    staff         = $staff
+                    byProgram     = $byProgram
+                    byBatch       = $byBatch
+                    byDepartment  = $byDepartment
+                }
+
+                # Blocked sites/apps counts
+                $blockedSites = 0; $blockedApps = 0
+                $bsFile = "C:\emis-api\blocked-sites.json"
+                $baFile = "C:\emis-api\blocked-apps.json"
+                if (Test-Path $bsFile) {
+                    $raw = Get-Content $bsFile -Raw -ErrorAction SilentlyContinue
+                    if ($raw) { $blockedSites = ([array]($raw | ConvertFrom-Json)).Count }
+                }
+                if (Test-Path $baFile) {
+                    $raw = Get-Content $baFile -Raw -ErrorAction SilentlyContinue
+                    if ($raw) { $blockedApps = ([array]($raw | ConvertFrom-Json)).Count }
+                }
+                $result.blocking = @{ sites = $blockedSites; apps = $blockedApps }
+
+                # Recent audit activity (last 24h)
+                $auditFile = "C:\emis-api\audit-log.json"
+                $recentAudit = 0
+                if (Test-Path $auditFile) {
+                    $raw = Get-Content $auditFile -Raw -ErrorAction SilentlyContinue
+                    if ($raw) {
+                        $logs = [array]($raw | ConvertFrom-Json)
+                        $cutoff24h = (Get-Date).AddHours(-24).ToString('o')
+                        $recentAudit = @($logs | Where-Object { $_.timestamp -gt $cutoff24h }).Count
+                    }
+                }
+                $result.recentAuditEvents = $recentAudit
+
+                # Photo count
+                $photosDir = "C:\emis-api\photos"
+                $photoCount = 0
+                if (Test-Path $photosDir) {
+                    $photoCount = (Get-ChildItem $photosDir -File -Include *.jpg,*.jpeg,*.png | Measure-Object).Count
+                }
+                $result.photos = $photoCount
             }
 
             Write-PodeJsonResponse -Value $result
