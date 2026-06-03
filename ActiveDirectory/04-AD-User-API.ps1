@@ -1032,10 +1032,11 @@ Start-PodeServer -Threads $Threads {
         }
         try {
             $safeMsg = $body.message -replace '[^a-zA-Z0-9 .,!?@#$%&()\-]', ''
+            $mqFile = "C:\emis-api\message-queue.json"
             Lock-PodeObject -ScriptBlock {
                 $queue = @()
-                if (Test-Path $script:MsgQueueFile) {
-                    $raw = Get-Content $script:MsgQueueFile -Raw -Encoding UTF8
+                if (Test-Path $mqFile) {
+                    $raw = Get-Content $mqFile -Raw -Encoding UTF8
                     if ($raw) { $queue = @($raw | ConvertFrom-Json) }
                 }
                 $queue += @{
@@ -1046,7 +1047,7 @@ Start-PodeServer -Threads $Threads {
                     timestamp = (Get-Date).ToString('o')
                     delivered = $false
                 }
-                $queue | ConvertTo-Json -Depth 5 | Set-Content $script:MsgQueueFile -Encoding UTF8
+                $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
             }
             Write-PodeJsonResponse -Value @{ message = "Message queued"; hostname = $hostname; text = $safeMsg }
         } catch {
@@ -1064,10 +1065,11 @@ Start-PodeServer -Threads $Threads {
         }
         try {
             $pending = @()
+            $mqFile = "C:\emis-api\message-queue.json"
             Lock-PodeObject -ScriptBlock {
                 $queue = @()
-                if (Test-Path $script:MsgQueueFile) {
-                    $raw = Get-Content $script:MsgQueueFile -Raw -Encoding UTF8
+                if (Test-Path $mqFile) {
+                    $raw = Get-Content $mqFile -Raw -Encoding UTF8
                     if ($raw) { $queue = @($raw | ConvertFrom-Json) }
                 }
                 $pending = @($queue | Where-Object { $_.hostname -eq $hostname -and -not $_.delivered })
@@ -1077,7 +1079,7 @@ Start-PodeServer -Threads $Threads {
                         $msg.delivered = $true
                     }
                 }
-                $queue | ConvertTo-Json -Depth 5 | Set-Content $script:MsgQueueFile -Encoding UTF8
+                $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
             }
             Write-PodeJsonResponse -Value @{ hostname = $hostname; count = $pending.Count; messages = $pending }
         } catch {
