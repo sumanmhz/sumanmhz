@@ -61,6 +61,45 @@
 #   POST   /api/v1/labs/:lab/install                 - Install software on all PCs in lab
 #   GET    /api/v1/pcs/:hostname/software            - List installed software
 #
+#   --- Website/App Blocking (superadmin) ---
+#   GET    /api/v1/websites/blocked                  - List blocked sites
+#   POST   /api/v1/websites/block                    - Block a site
+#   DELETE /api/v1/websites/block/:domain            - Unblock a site
+#   GET    /api/v1/apps/blocked                      - List blocked apps
+#   POST   /api/v1/apps/block                        - Block an app
+#   DELETE /api/v1/apps/block/:appname               - Unblock an app
+#
+#   --- Exam Mode (superadmin) ---
+#   GET    /api/v1/labs/:lab/exam-mode               - Get exam mode status
+#   POST   /api/v1/labs/:lab/exam-mode               - Enable exam mode
+#   DELETE /api/v1/labs/:lab/exam-mode               - Disable exam mode
+#
+#   --- Session Tracking ---
+#   POST   /api/v1/sessions/report                   - Polling agent reports login/logout/idle
+#   GET    /api/v1/sessions/active                   - Who's logged in now (superadmin + teacher)
+#   GET    /api/v1/sessions/history                  - Full session history (superadmin)
+#   GET    /api/v1/labs/:lab/idle                    - Idle users in a lab (superadmin + teacher)
+#
+#   --- Announcements ---
+#   GET    /api/v1/announcements                     - List active announcements
+#   POST   /api/v1/announcements                     - Create announcement (superadmin + teacher)
+#   DELETE /api/v1/announcements/:id                 - Delete announcement (superadmin)
+#
+#   --- Wake-on-LAN (superadmin) ---
+#   POST   /api/v1/pcs/:hostname/wake                - Wake a single PC
+#   POST   /api/v1/labs/:lab/wake-all                - Wake all PCs in a lab
+#
+#   --- Scheduled Shutdown (superadmin) ---
+#   GET    /api/v1/schedules                         - List all schedules
+#   POST   /api/v1/labs/:lab/schedule-shutdown       - Schedule auto-shutdown
+#   DELETE /api/v1/schedules/:id                     - Remove a schedule
+#
+#   --- Audit Log (superadmin) ---
+#   GET    /api/v1/audit                             - View audit log
+#
+#   --- Polling Agent Config ---
+#   GET    /api/v1/pcs/:hostname/config              - All config for a lab PC
+#
 #   --- Web Dashboard ---
 #   GET    /                                        - Redirects to /web/
 #   GET    /web/*                                   - Serves static dashboard files
@@ -226,6 +265,22 @@ Start-PodeServer -Threads $Threads {
     $pcRegistryFile = "C:\emis-api\pc-registry.json"
     if (-not (Test-Path $pcRegistryFile)) { '[]' | Set-Content $pcRegistryFile -Encoding UTF8 }
 
+    # New config files for monitoring features
+    $script:BlockedSitesFile = "C:\emis-api\blocked-sites.json"
+    if (-not (Test-Path $script:BlockedSitesFile)) { '[]' | Set-Content $script:BlockedSitesFile -Encoding UTF8 }
+    $script:BlockedAppsFile = "C:\emis-api\blocked-apps.json"
+    if (-not (Test-Path $script:BlockedAppsFile)) { '[]' | Set-Content $script:BlockedAppsFile -Encoding UTF8 }
+    $script:ExamModeFile = "C:\emis-api\exam-mode.json"
+    if (-not (Test-Path $script:ExamModeFile)) { '{}' | Set-Content $script:ExamModeFile -Encoding UTF8 }
+    $script:AnnouncementsFile = "C:\emis-api\announcements.json"
+    if (-not (Test-Path $script:AnnouncementsFile)) { '[]' | Set-Content $script:AnnouncementsFile -Encoding UTF8 }
+    $script:AuditLogFile = "C:\emis-api\audit-log.json"
+    if (-not (Test-Path $script:AuditLogFile)) { '[]' | Set-Content $script:AuditLogFile -Encoding UTF8 }
+    $script:SessionsFile = "C:\emis-api\sessions.json"
+    if (-not (Test-Path $script:SessionsFile)) { '[]' | Set-Content $script:SessionsFile -Encoding UTF8 }
+    $script:SchedulesFile = "C:\emis-api\schedules.json"
+    if (-not (Test-Path $script:SchedulesFile)) { '[]' | Set-Content $script:SchedulesFile -Encoding UTF8 }
+
     $script:ValidBatches     = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
     $script:ValidPrograms    = @("BCT", "BEI", "BCE", "BAR", "BME", "BIE", "BAM", "MMDM", "MEE", "MIISE")
     $script:ValidDepartments = @("DOAS", "DOA", "DAME", "DOCE", "DOECE", "DOIE", "Administration", "IT")
@@ -295,6 +350,42 @@ Start-PodeServer -Threads $Threads {
         $match = $labSubnets | Where-Object { $_.Subnet -eq $ipSubnet }
         if ($match) { return $match.Name }
         return $null
+    }
+
+    # - Helper: Audit log - tracks every admin action -
+    function Write-AuditLog {
+        param([string]$Action, [string]$Target, [string]$Detail, [string]$Actor)
+        $logFile = "C:\emis-api\audit-log.json"
+        $log = @()
+        if (Test-Path $logFile) {
+            $raw = Get-Content $logFile -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim().Length -gt 2) { $log = @($raw | ConvertFrom-Json) }
+        }
+        # Keep last 10000 entries max
+        if ($log.Count -ge 10000) { $log = @($log | Select-Object -Last 9999) }
+        $log += @{
+            id        = [guid]::NewGuid().ToString().Substring(0,8)
+            timestamp = (Get-Date).ToString('o')
+            actor     = $Actor
+            action    = $Action
+            target    = $Target
+            detail    = $Detail
+        }
+        $log | ConvertTo-Json -Depth 5 | Set-Content $logFile -Encoding UTF8
+    }
+
+    # - Helper: Send Wake-on-LAN magic packet -
+    function Send-WOLPacket {
+        param([string]$MacAddress, [string]$BroadcastIP = "255.255.255.255")
+        $mac = $MacAddress -replace '[:-]', ''
+        if ($mac.Length -ne 12) { throw "Invalid MAC address" }
+        $magicPacket = [byte[]](,0xFF * 6)
+        $macBytes = 0..5 | ForEach-Object { [Convert]::ToByte($mac.Substring($_ * 2, 2), 16) }
+        $magicPacket += [byte[]](1..16 | ForEach-Object { $macBytes }) | ForEach-Object { $_ }
+        $udpClient = New-Object System.Net.Sockets.UdpClient
+        $udpClient.Connect($BroadcastIP, 9)
+        $udpClient.Send($magicPacket, $magicPacket.Length) | Out-Null
+        $udpClient.Close()
     }
 
     # -
@@ -1256,6 +1347,7 @@ Start-PodeServer -Threads $Threads {
             $subnet = ($ip -replace '\.\d+$', '.0/24')
             $labName = Get-LabFromIP -IP $ip
             if (-not $labName) { $labName = if ($body['lab']) { $body['lab'] } else { "Unknown-$($ip -replace '\.\d+$', '')" } }
+            $mac = if ($body['mac']) { $body['mac'] -replace '[^a-fA-F0-9:\-]', '' } else { $null }
             # Update or add
             $existing = $registry | Where-Object { $_.Hostname -eq $hostname.ToUpper() }
             if ($existing) {
@@ -1264,10 +1356,12 @@ Start-PodeServer -Threads $Threads {
                 $existing.Lab = $labName
                 $existing.LastSeen = (Get-Date).ToString('o')
                 $existing.Online = $true
+                if ($mac) { $existing | Add-Member -NotePropertyName MAC -NotePropertyValue $mac -Force }
             } else {
                 $registry += @{
                     Hostname  = $hostname.ToUpper()
                     IP        = $ip
+                    MAC       = $mac
                     Subnet    = $subnet
                     Lab       = $labName
                     FirstSeen = (Get-Date).ToString('o')
@@ -1555,6 +1649,812 @@ Start-PodeServer -Threads $Threads {
     }
 
     # -
+    #                    AUDIT LOG
+    # -
+
+    # - GET /api/v1/audit - View audit log -
+    Add-PodeRoute -Method Get -Path '/api/v1/audit' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $page     = if ($WebEvent.Query['page'])     { [int]$WebEvent.Query['page'] }     else { 1 }
+        $pageSize = if ($WebEvent.Query['pageSize']) { [int]$WebEvent.Query['pageSize'] } else { 50 }
+        $action   = $WebEvent.Query['action']
+        if ($pageSize -gt 200) { $pageSize = 200 }
+        try {
+            $logFile = "C:\emis-api\audit-log.json"
+            $log = @()
+            if (Test-Path $logFile) {
+                $raw = Get-Content $logFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $log = @($raw | ConvertFrom-Json) }
+            }
+            $log = @($log | Sort-Object { $_.timestamp } -Descending)
+            if ($action) { $log = @($log | Where-Object { $_.action -like "*$action*" }) }
+            $total = $log.Count
+            $entries = @($log | Select-Object -Skip (($page - 1) * $pageSize) -First $pageSize)
+            Write-PodeJsonResponse -Value @{ total = $total; page = $page; pageSize = $pageSize; entries = $entries }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              WEBSITE BLOCKING (superadmin)
+    # -
+
+    # - GET /api/v1/websites/blocked - List blocked sites -
+    Add-PodeRoute -Method Get -Path '/api/v1/websites/blocked' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $sites = @()
+        $f = "C:\emis-api\blocked-sites.json"
+        if (Test-Path $f) {
+            $raw = Get-Content $f -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim().Length -gt 2) { $sites = @($raw | ConvertFrom-Json) }
+        }
+        Write-PodeJsonResponse -Value @{ count = $sites.Count; sites = $sites }
+    }
+
+    # - POST /api/v1/websites/block - Block a site -
+    # Body: { "domain": "facebook.com", "reason": "Social media", "labs": ["Lab-D101"] }
+    # labs is optional — omit to block on ALL labs
+    Add-PodeRoute -Method Post -Path '/api/v1/websites/block' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $body = $WebEvent.Data
+        $domain = $body['domain']
+        if ([string]::IsNullOrWhiteSpace($domain)) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'domain' required (e.g., facebook.com)" }
+            return
+        }
+        $safeDomain = $domain.ToLower().Trim() -replace '[^a-z0-9.\-]', ''
+        if ($safeDomain -notmatch '^[a-z0-9]([a-z0-9\-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]*[a-z0-9])?)+$') {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid domain format" }
+            return
+        }
+        try {
+            $f = "C:\emis-api\blocked-sites.json"
+            $sites = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $sites = @($raw | ConvertFrom-Json) }
+            }
+            $existing = $sites | Where-Object { $_.domain -eq $safeDomain }
+            if ($existing) {
+                Set-PodeResponseStatus -Code 409
+                Write-PodeJsonResponse -Value @{ error = "Conflict"; message = "'$safeDomain' is already blocked" }
+                return
+            }
+            $entry = @{
+                domain    = $safeDomain
+                reason    = if ($body['reason']) { $body['reason'] } else { "" }
+                labs      = if ($body['labs']) { @($body['labs']) } else { @("ALL") }
+                blockedBy = $WebEvent.Data['_name']
+                blockedAt = (Get-Date).ToString('o')
+            }
+            $sites += $entry
+            $sites | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "website-block" -Target $safeDomain -Detail "Reason: $($entry.reason), Labs: $($entry.labs -join ',')" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Site blocked"; domain = $safeDomain; labs = $entry.labs }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - DELETE /api/v1/websites/block/:domain - Unblock a site -
+    Add-PodeRoute -Method Delete -Path '/api/v1/websites/block/:domain' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $domain = $WebEvent.Parameters['domain'].ToLower().Trim()
+        try {
+            $f = "C:\emis-api\blocked-sites.json"
+            $sites = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $sites = @($raw | ConvertFrom-Json) }
+            }
+            $found = $sites | Where-Object { $_.domain -eq $domain }
+            if (-not $found) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "'$domain' is not blocked" }
+                return
+            }
+            $sites = @($sites | Where-Object { $_.domain -ne $domain })
+            $sites | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "website-unblock" -Target $domain -Detail "Unblocked" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "Site unblocked"; domain = $domain }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              APP BLOCKING (superadmin)
+    # -
+
+    # - GET /api/v1/apps/blocked - List blocked apps -
+    Add-PodeRoute -Method Get -Path '/api/v1/apps/blocked' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $apps = @()
+        $f = "C:\emis-api\blocked-apps.json"
+        if (Test-Path $f) {
+            $raw = Get-Content $f -Raw -Encoding UTF8
+            if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
+        }
+        Write-PodeJsonResponse -Value @{ count = $apps.Count; apps = $apps }
+    }
+
+    # - POST /api/v1/apps/block - Block an app -
+    # Body: { "processName": "chrome", "displayName": "Google Chrome", "labs": ["Lab-D101"] }
+    Add-PodeRoute -Method Post -Path '/api/v1/apps/block' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $body = $WebEvent.Data
+        $procName = $body['processName']
+        if ([string]::IsNullOrWhiteSpace($procName)) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'processName' required (e.g., chrome, vlc)" }
+            return
+        }
+        $safeName = $procName.ToLower().Trim() -replace '[^a-z0-9._\-]', ''
+        try {
+            $f = "C:\emis-api\blocked-apps.json"
+            $apps = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
+            }
+            if ($apps | Where-Object { $_.processName -eq $safeName }) {
+                Set-PodeResponseStatus -Code 409
+                Write-PodeJsonResponse -Value @{ error = "Conflict"; message = "'$safeName' is already blocked" }
+                return
+            }
+            $entry = @{
+                processName = $safeName
+                displayName = if ($body['displayName']) { $body['displayName'] } else { $safeName }
+                labs        = if ($body['labs']) { @($body['labs']) } else { @("ALL") }
+                blockedBy   = $WebEvent.Data['_name']
+                blockedAt   = (Get-Date).ToString('o')
+            }
+            $apps += $entry
+            $apps | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "app-block" -Target $safeName -Detail "Labs: $($entry.labs -join ',')" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "App blocked"; processName = $safeName; labs = $entry.labs }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - DELETE /api/v1/apps/block/:appname - Unblock an app -
+    Add-PodeRoute -Method Delete -Path '/api/v1/apps/block/:appname' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $appName = $WebEvent.Parameters['appname'].ToLower().Trim()
+        try {
+            $f = "C:\emis-api\blocked-apps.json"
+            $apps = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
+            }
+            if (-not ($apps | Where-Object { $_.processName -eq $appName })) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "'$appName' is not blocked" }
+                return
+            }
+            $apps = @($apps | Where-Object { $_.processName -ne $appName })
+            $apps | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "app-unblock" -Target $appName -Detail "Unblocked" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "App unblocked"; processName = $appName }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              EXAM MODE (superadmin)
+    # -
+
+    # - GET /api/v1/labs/:lab/exam-mode - Get exam mode status -
+    Add-PodeRoute -Method Get -Path '/api/v1/labs/:lab/exam-mode' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $labName = $WebEvent.Parameters['lab']
+        try {
+            $f = "C:\emis-api\exam-mode.json"
+            $modes = @{}
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $parsed = $raw | ConvertFrom-Json
+                    $parsed.PSObject.Properties | ForEach-Object { $modes[$_.Name] = $_.Value }
+                }
+            }
+            if ($modes.ContainsKey($labName)) {
+                Write-PodeJsonResponse -Value @{ lab = $labName; examMode = $true; config = $modes[$labName] }
+            } else {
+                Write-PodeJsonResponse -Value @{ lab = $labName; examMode = $false }
+            }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - POST /api/v1/labs/:lab/exam-mode - Enable exam mode -
+    # Body: {
+    #   "blockInternet": true,
+    #   "allowedSites": ["tcioe.edu.np", "moodle.tcioe.edu.np"],
+    #   "allowedApps": ["notepad", "cmd", "turbo-c", "code"],
+    #   "blockUSB": true,
+    #   "message": "Exam in progress - Internet restricted"
+    # }
+    Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/exam-mode' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $labName = $WebEvent.Parameters['lab']
+        $body = $WebEvent.Data
+        $lab = Get-Lab -Name $labName
+        if (-not $lab) {
+            Set-PodeResponseStatus -Code 404
+            Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab '$labName' not found" }
+            return
+        }
+        try {
+            $f = "C:\emis-api\exam-mode.json"
+            $modes = @{}
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $parsed = $raw | ConvertFrom-Json
+                    $parsed.PSObject.Properties | ForEach-Object { $modes[$_.Name] = $_.Value }
+                }
+            }
+            $config = @{
+                enabled       = $true
+                blockInternet = if ($null -ne $body['blockInternet']) { [bool]$body['blockInternet'] } else { $true }
+                allowedSites  = if ($body['allowedSites']) { @($body['allowedSites']) } else { @() }
+                allowedApps   = if ($body['allowedApps']) { @($body['allowedApps']) } else { @() }
+                blockUSB      = if ($null -ne $body['blockUSB']) { [bool]$body['blockUSB'] } else { $false }
+                message       = if ($body['message']) { $body['message'] } else { "Exam mode active" }
+                enabledBy     = $WebEvent.Data['_name']
+                enabledAt     = (Get-Date).ToString('o')
+            }
+            $modes[$labName] = $config
+            $modes | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "exam-mode-enable" -Target $labName -Detail "BlockInternet=$($config.blockInternet), AllowedSites=$($config.allowedSites -join ','), AllowedApps=$($config.allowedApps -join ',')" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Exam mode enabled"; lab = $labName; config = $config }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - DELETE /api/v1/labs/:lab/exam-mode - Disable exam mode -
+    Add-PodeRoute -Method Delete -Path '/api/v1/labs/:lab/exam-mode' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $labName = $WebEvent.Parameters['lab']
+        try {
+            $f = "C:\emis-api\exam-mode.json"
+            $modes = @{}
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $parsed = $raw | ConvertFrom-Json
+                    $parsed.PSObject.Properties | ForEach-Object { $modes[$_.Name] = $_.Value }
+                }
+            }
+            if (-not $modes.ContainsKey($labName)) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Exam mode not active for '$labName'" }
+                return
+            }
+            $modes.Remove($labName)
+            $modes | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "exam-mode-disable" -Target $labName -Detail "Disabled" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "Exam mode disabled"; lab = $labName }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              SESSION TRACKING
+    # -
+
+    # - POST /api/v1/sessions/report - Polling agent reports session data -
+    # Body: { "hostname": "DESKTOP-O8QKSH4", "username": "THA080BCT001", "action": "login"|"logout"|"idle"|"active", "idleMinutes": 5 }
+    Add-PodeRoute -Method Post -Path '/api/v1/sessions/report' -ScriptBlock {
+        $apiKey = $WebEvent.Request.Headers['X-API-Key']
+        if ($apiKey -ne 'polling-agent') {
+            if (-not (Assert-Role @("superadmin"))) { return }
+        }
+        $body = $WebEvent.Data
+        if ($body -isnot [hashtable]) {
+            $ht = @{}; $body.PSObject.Properties | ForEach-Object { $ht[$_.Name] = $_.Value }; $body = $ht
+        }
+        $hostname = $body['hostname']
+        $username = $body['username']
+        $action   = $body['action']
+        if (-not $hostname -or -not $action) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'hostname' and 'action' required" }
+            return
+        }
+        try {
+            $f = "C:\emis-api\sessions.json"
+            $sessions = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+            }
+            # Keep last 50000 entries
+            if ($sessions.Count -ge 50000) { $sessions = @($sessions | Select-Object -Last 49999) }
+            $sessions += @{
+                hostname    = $hostname.ToUpper()
+                username    = $username
+                action      = $action
+                idleMinutes = if ($body['idleMinutes']) { [int]$body['idleMinutes'] } else { 0 }
+                ip          = $WebEvent.Request.RemoteEndPoint.Address.ToString()
+                lab         = Get-LabFromIP -IP $WebEvent.Request.RemoteEndPoint.Address.ToString()
+                timestamp   = (Get-Date).ToString('o')
+            }
+            $sessions | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-PodeJsonResponse -Value @{ message = "Session reported"; hostname = $hostname; action = $action }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - GET /api/v1/sessions/active - Who's logged in now (all labs) -
+    Add-PodeRoute -Method Get -Path '/api/v1/sessions/active' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $lab = $WebEvent.Query['lab']
+        try {
+            $f = "C:\emis-api\sessions.json"
+            $sessions = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+            }
+            # Get latest session per hostname (login/logout/active/idle)
+            $grouped = @{}
+            foreach ($s in $sessions) {
+                $key = $s.hostname
+                if (-not $grouped.ContainsKey($key) -or $s.timestamp -gt $grouped[$key].timestamp) {
+                    $grouped[$key] = $s
+                }
+            }
+            $active = @($grouped.Values | Where-Object { $_.action -in @("login", "active", "idle") })
+            if ($lab) { $active = @($active | Where-Object { $_.lab -eq $lab }) }
+            $idle = @($active | Where-Object { $_.action -eq "idle" })
+            Write-PodeJsonResponse -Value @{
+                total      = $active.Count
+                idle       = $idle.Count
+                activeUsers = $active.Count - $idle.Count
+                sessions   = @($active | Sort-Object { $_.timestamp } -Descending)
+            }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - GET /api/v1/sessions/history - Login/logout history (superadmin) -
+    Add-PodeRoute -Method Get -Path '/api/v1/sessions/history' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $page     = if ($WebEvent.Query['page'])     { [int]$WebEvent.Query['page'] }     else { 1 }
+        $pageSize = if ($WebEvent.Query['pageSize']) { [int]$WebEvent.Query['pageSize'] } else { 100 }
+        $hostname = $WebEvent.Query['hostname']
+        $username = $WebEvent.Query['username']
+        $lab      = $WebEvent.Query['lab']
+        if ($pageSize -gt 500) { $pageSize = 500 }
+        try {
+            $f = "C:\emis-api\sessions.json"
+            $sessions = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+            }
+            $sessions = @($sessions | Sort-Object { $_.timestamp } -Descending)
+            if ($hostname) { $sessions = @($sessions | Where-Object { $_.hostname -eq $hostname.ToUpper() }) }
+            if ($username) { $sessions = @($sessions | Where-Object { $_.username -like "*$username*" }) }
+            if ($lab)      { $sessions = @($sessions | Where-Object { $_.lab -eq $lab }) }
+            $total = $sessions.Count
+            $entries = @($sessions | Select-Object -Skip (($page - 1) * $pageSize) -First $pageSize)
+            Write-PodeJsonResponse -Value @{ total = $total; page = $page; pageSize = $pageSize; entries = $entries }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - GET /api/v1/labs/:lab/idle - List idle users in a lab -
+    Add-PodeRoute -Method Get -Path '/api/v1/labs/:lab/idle' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $labName = $WebEvent.Parameters['lab']
+        try {
+            $f = "C:\emis-api\sessions.json"
+            $sessions = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+            }
+            $grouped = @{}
+            foreach ($s in $sessions) {
+                $key = $s.hostname
+                if (-not $grouped.ContainsKey($key) -or $s.timestamp -gt $grouped[$key].timestamp) {
+                    $grouped[$key] = $s
+                }
+            }
+            $idle = @($grouped.Values | Where-Object { $_.action -eq "idle" -and $_.lab -eq $labName })
+            Write-PodeJsonResponse -Value @{ lab = $labName; idleCount = $idle.Count; idleUsers = $idle }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              ANNOUNCEMENTS
+    # -
+
+    # - GET /api/v1/announcements - List announcements -
+    Add-PodeRoute -Method Get -Path '/api/v1/announcements' -ScriptBlock {
+        # Polling agent and any authenticated user can read announcements
+        $apiKey = $WebEvent.Request.Headers['X-API-Key']
+        if ($apiKey -ne 'polling-agent') {
+            if (-not (Assert-Role @("superadmin", "teacher", "student"))) { return }
+        }
+        $lab = $WebEvent.Query['lab']
+        try {
+            $f = "C:\emis-api\announcements.json"
+            $announcements = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
+            }
+            # Filter active (not expired)
+            $now = Get-Date
+            $active = @($announcements | Where-Object {
+                -not $_.expiresAt -or (Get-Date $_.expiresAt) -gt $now
+            })
+            if ($lab) { $active = @($active | Where-Object { $_.labs -contains "ALL" -or $_.labs -contains $lab }) }
+            Write-PodeJsonResponse -Value @{ count = $active.Count; announcements = @($active | Sort-Object { $_.createdAt } -Descending) }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - POST /api/v1/announcements - Create announcement -
+    # Body: { "title": "Lab Closed", "message": "Lab-D101 closed tomorrow for maintenance", "priority": "high"|"normal"|"low", "labs": ["Lab-D101"], "expiresAt": "2026-06-05T18:00:00" }
+    Add-PodeRoute -Method Post -Path '/api/v1/announcements' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin", "teacher"))) { return }
+        $body = $WebEvent.Data
+        if ([string]::IsNullOrWhiteSpace($body['title']) -or [string]::IsNullOrWhiteSpace($body['message'])) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'title' and 'message' required" }
+            return
+        }
+        try {
+            $f = "C:\emis-api\announcements.json"
+            $announcements = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
+            }
+            $entry = @{
+                id        = [guid]::NewGuid().ToString().Substring(0,8)
+                title     = $body['title']
+                message   = $body['message']
+                priority  = if ($body['priority']) { $body['priority'] } else { "normal" }
+                labs      = if ($body['labs']) { @($body['labs']) } else { @("ALL") }
+                createdBy = $WebEvent.Data['_name']
+                createdAt = (Get-Date).ToString('o')
+                expiresAt = if ($body['expiresAt']) { $body['expiresAt'] } else { $null }
+            }
+            $announcements += $entry
+            $announcements | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "announcement-create" -Target $entry.id -Detail "Title: $($entry.title)" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Announcement created"; announcement = $entry }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - DELETE /api/v1/announcements/:id - Delete announcement -
+    Add-PodeRoute -Method Delete -Path '/api/v1/announcements/:id' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $annoId = $WebEvent.Parameters['id']
+        try {
+            $f = "C:\emis-api\announcements.json"
+            $announcements = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
+            }
+            if (-not ($announcements | Where-Object { $_.id -eq $annoId })) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Announcement '$annoId' not found" }
+                return
+            }
+            $announcements = @($announcements | Where-Object { $_.id -ne $annoId })
+            $announcements | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "announcement-delete" -Target $annoId -Detail "Deleted" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "Announcement deleted"; id = $annoId }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              WAKE-ON-LAN
+    # -
+
+    # - POST /api/v1/pcs/:hostname/wake - Wake a single PC -
+    Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/wake' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $hostname = $WebEvent.Parameters['hostname'].ToUpper()
+        try {
+            $regFile = "C:\emis-api\pc-registry.json"
+            $registry = @()
+            if (Test-Path $regFile) {
+                $raw = Get-Content $regFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+            }
+            $pc = $registry | Where-Object { $_.Hostname -eq $hostname }
+            if (-not $pc -or -not $pc.MAC) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "PC '$hostname' not found or MAC address not registered. PC must register with MAC first." }
+                return
+            }
+            $subnet = $pc.Subnet -replace '/\d+$', '' -replace '\.0$', '.255'
+            Send-WOLPacket -MacAddress $pc.MAC -BroadcastIP $subnet
+            Write-AuditLog -Action "wake-on-lan" -Target $hostname -Detail "MAC: $($pc.MAC)" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "WOL packet sent"; hostname = $hostname; mac = $pc.MAC }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - POST /api/v1/labs/:lab/wake-all - Wake all PCs in a lab -
+    Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/wake-all' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $labName = $WebEvent.Parameters['lab']
+        try {
+            $regFile = "C:\emis-api\pc-registry.json"
+            $registry = @()
+            if (Test-Path $regFile) {
+                $raw = Get-Content $regFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+            }
+            $labPCs = @($registry | Where-Object { $_.Lab -eq $labName -and $_.MAC })
+            if ($labPCs.Count -eq 0) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "No PCs with MAC addresses found for '$labName'" }
+                return
+            }
+            $ok = @(); $fail = @()
+            foreach ($pc in $labPCs) {
+                try {
+                    $subnet = $pc.Subnet -replace '/\d+$', '' -replace '\.0$', '.255'
+                    Send-WOLPacket -MacAddress $pc.MAC -BroadcastIP $subnet
+                    $ok += $pc.Hostname
+                } catch { $fail += @{ hostname = $pc.Hostname; reason = $_.Exception.Message } }
+            }
+            Write-AuditLog -Action "wake-all" -Target $labName -Detail "Sent $($ok.Count) WOL packets" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "WOL packets sent"; lab = $labName; sent = $ok.Count; failed = $fail.Count; details = @{ success = $ok; failed = $fail } }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #              SCHEDULED SHUTDOWN
+    # -
+
+    # - GET /api/v1/schedules - List all schedules -
+    Add-PodeRoute -Method Get -Path '/api/v1/schedules' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        try {
+            $f = "C:\emis-api\schedules.json"
+            $schedules = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
+            }
+            Write-PodeJsonResponse -Value @{ count = $schedules.Count; schedules = $schedules }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - POST /api/v1/labs/:lab/schedule-shutdown - Schedule auto-shutdown -
+    # Body: { "time": "20:00", "days": ["Monday","Tuesday","Wednesday","Thursday","Friday"], "warnMinutes": 10 }
+    Add-PodeRoute -Method Post -Path '/api/v1/labs/:lab/schedule-shutdown' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $labName = $WebEvent.Parameters['lab']
+        $body = $WebEvent.Data
+        if ([string]::IsNullOrWhiteSpace($body['time'])) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "'time' required (e.g., '20:00')" }
+            return
+        }
+        if ($body['time'] -notmatch '^\d{2}:\d{2}$') {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "time must be HH:MM format (e.g., '20:00')" }
+            return
+        }
+        $lab = Get-Lab -Name $labName
+        if (-not $lab) {
+            Set-PodeResponseStatus -Code 404
+            Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Lab '$labName' not found" }
+            return
+        }
+        try {
+            $f = "C:\emis-api\schedules.json"
+            $schedules = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
+            }
+            # Remove existing schedule for this lab
+            $schedules = @($schedules | Where-Object { $_.lab -ne $labName })
+            $entry = @{
+                id          = [guid]::NewGuid().ToString().Substring(0,8)
+                lab         = $labName
+                action      = "shutdown"
+                time        = $body['time']
+                days        = if ($body['days']) { @($body['days']) } else { @("Monday","Tuesday","Wednesday","Thursday","Friday") }
+                warnMinutes = if ($body['warnMinutes']) { [int]$body['warnMinutes'] } else { 10 }
+                enabled     = $true
+                createdBy   = $WebEvent.Data['_name']
+                createdAt   = (Get-Date).ToString('o')
+            }
+            $schedules += $entry
+            $schedules | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "schedule-create" -Target $labName -Detail "Shutdown at $($entry.time) on $($entry.days -join ',')" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Schedule created"; schedule = $entry }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - DELETE /api/v1/schedules/:id - Remove a schedule -
+    Add-PodeRoute -Method Delete -Path '/api/v1/schedules/:id' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $schedId = $WebEvent.Parameters['id']
+        try {
+            $f = "C:\emis-api\schedules.json"
+            $schedules = @()
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
+            }
+            if (-not ($schedules | Where-Object { $_.id -eq $schedId })) {
+                Set-PodeResponseStatus -Code 404
+                Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Schedule '$schedId' not found" }
+                return
+            }
+            $schedules = @($schedules | Where-Object { $_.id -ne $schedId })
+            $schedules | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            Write-AuditLog -Action "schedule-delete" -Target $schedId -Detail "Deleted" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -Value @{ message = "Schedule deleted"; id = $schedId }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
+    #      POLLING CONFIG (lab PCs get all their config in one call)
+    # -
+
+    # - GET /api/v1/pcs/:hostname/config - All config for a lab PC -
+    # Returns: blocked sites, blocked apps, exam mode, announcements, schedules
+    Add-PodeRoute -Method Get -Path '/api/v1/pcs/:hostname/config' -ScriptBlock {
+        $apiKey = $WebEvent.Request.Headers['X-API-Key']
+        if ($apiKey -ne 'polling-agent') {
+            if (-not (Assert-Role @("superadmin"))) { return }
+        }
+        $hostname = $WebEvent.Parameters['hostname'].ToUpper()
+        try {
+            # Determine lab from registry
+            $labName = $null
+            $regFile = "C:\emis-api\pc-registry.json"
+            if (Test-Path $regFile) {
+                $raw = Get-Content $regFile -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $registry = @($raw | ConvertFrom-Json)
+                    $pc = $registry | Where-Object { $_.Hostname -eq $hostname }
+                    if ($pc) { $labName = $pc.Lab }
+                }
+            }
+
+            # Blocked sites (filtered by lab)
+            $blockedSites = @()
+            $f = "C:\emis-api\blocked-sites.json"
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $all = @($raw | ConvertFrom-Json)
+                    $blockedSites = @($all | Where-Object { $_.labs -contains "ALL" -or ($labName -and $_.labs -contains $labName) } | ForEach-Object { $_.domain })
+                }
+            }
+
+            # Blocked apps (filtered by lab)
+            $blockedApps = @()
+            $f = "C:\emis-api\blocked-apps.json"
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $all = @($raw | ConvertFrom-Json)
+                    $blockedApps = @($all | Where-Object { $_.labs -contains "ALL" -or ($labName -and $_.labs -contains $labName) } | ForEach-Object { $_.processName })
+                }
+            }
+
+            # Exam mode
+            $examMode = $null
+            $f = "C:\emis-api\exam-mode.json"
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $parsed = $raw | ConvertFrom-Json
+                    if ($labName -and $parsed.PSObject.Properties[$labName]) {
+                        $examMode = $parsed.$labName
+                    }
+                }
+            }
+
+            # Announcements
+            $announcements = @()
+            $f = "C:\emis-api\announcements.json"
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $now = Get-Date
+                    $all = @($raw | ConvertFrom-Json)
+                    $announcements = @($all | Where-Object {
+                        (-not $_.expiresAt -or (Get-Date $_.expiresAt) -gt $now) -and
+                        ($_.labs -contains "ALL" -or ($labName -and $_.labs -contains $labName))
+                    } | ForEach-Object { @{ id = $_.id; title = $_.title; message = $_.message; priority = $_.priority; createdAt = $_.createdAt } })
+                }
+            }
+
+            # Scheduled shutdown for this lab
+            $schedule = $null
+            $f = "C:\emis-api\schedules.json"
+            if (Test-Path $f) {
+                $raw = Get-Content $f -Raw -Encoding UTF8
+                if ($raw -and $raw.Trim().Length -gt 2) {
+                    $all = @($raw | ConvertFrom-Json)
+                    $schedule = $all | Where-Object { $_.lab -eq $labName -and $_.enabled } | Select-Object -First 1
+                }
+            }
+
+            Write-PodeJsonResponse -Value @{
+                hostname      = $hostname
+                lab           = $labName
+                blockedSites  = $blockedSites
+                blockedApps   = $blockedApps
+                examMode      = $examMode
+                announcements = $announcements
+                schedule      = $schedule
+            }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # -
     #                       STARTUP BANNER
     # -
     $labs = Get-Labs
@@ -1606,13 +2506,48 @@ Start-PodeServer -Threads $Threads {
     Write-Host "   POST   /api/v1/pcs/{pc}/restart"
     Write-Host "   POST   /api/v1/pcs/{pc}/logoff"
     Write-Host "   POST   /api/v1/pcs/{pc}/message"
+    Write-Host "   POST   /api/v1/pcs/{pc}/wake              (Wake-on-LAN)"
+    Write-Host "   GET    /api/v1/pcs/{pc}/config             (polling agent config)"
     Write-Host "   POST   /api/v1/labs/{lab}/shutdown-all"
     Write-Host "   POST   /api/v1/labs/{lab}/restart-all"
     Write-Host "   POST   /api/v1/labs/{lab}/message-all"
+    Write-Host "   POST   /api/v1/labs/{lab}/wake-all         (Wake-on-LAN)"
     Write-Host ""
     Write-Host " Software Endpoints:" -ForegroundColor Yellow
     Write-Host "   GET    /api/v1/pcs/{pc}/software"
     Write-Host "   POST   /api/v1/pcs/{pc}/install"
     Write-Host "   POST   /api/v1/labs/{lab}/install"
+    Write-Host ""
+    Write-Host " Website/App Blocking:" -ForegroundColor Yellow
+    Write-Host "   GET    /api/v1/websites/blocked"
+    Write-Host "   POST   /api/v1/websites/block"
+    Write-Host "   DELETE /api/v1/websites/block/{domain}"
+    Write-Host "   GET    /api/v1/apps/blocked"
+    Write-Host "   POST   /api/v1/apps/block"
+    Write-Host "   DELETE /api/v1/apps/block/{appname}"
+    Write-Host ""
+    Write-Host " Exam Mode:" -ForegroundColor Yellow
+    Write-Host "   GET    /api/v1/labs/{lab}/exam-mode"
+    Write-Host "   POST   /api/v1/labs/{lab}/exam-mode        (enable)"
+    Write-Host "   DELETE /api/v1/labs/{lab}/exam-mode         (disable)"
+    Write-Host ""
+    Write-Host " Sessions & Monitoring:" -ForegroundColor Yellow
+    Write-Host "   POST   /api/v1/sessions/report             (polling agent)"
+    Write-Host "   GET    /api/v1/sessions/active"
+    Write-Host "   GET    /api/v1/sessions/history"
+    Write-Host "   GET    /api/v1/labs/{lab}/idle"
+    Write-Host ""
+    Write-Host " Announcements:" -ForegroundColor Yellow
+    Write-Host "   GET    /api/v1/announcements"
+    Write-Host "   POST   /api/v1/announcements"
+    Write-Host "   DELETE /api/v1/announcements/{id}"
+    Write-Host ""
+    Write-Host " Schedules:" -ForegroundColor Yellow
+    Write-Host "   GET    /api/v1/schedules"
+    Write-Host "   POST   /api/v1/labs/{lab}/schedule-shutdown"
+    Write-Host "   DELETE /api/v1/schedules/{id}"
+    Write-Host ""
+    Write-Host " Audit:" -ForegroundColor Yellow
+    Write-Host "   GET    /api/v1/audit"
     Write-Host ""
 }
