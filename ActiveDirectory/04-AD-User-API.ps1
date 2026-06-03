@@ -235,7 +235,7 @@ Start-PodeServer -Threads $Threads {
 
     # - Helper: Load labs from JSON -
     function Get-Labs {
-        @(Get-Content $script:LabFilePath -Raw | ConvertFrom-Json)
+        @(Get-Content "C:\emis-api\labs.json" -Raw | ConvertFrom-Json)
     }
 
     function Get-Lab {
@@ -247,7 +247,7 @@ Start-PodeServer -Threads $Threads {
     # - Helper: Resolve target OU -
     function Get-UserOU {
         param([string]$Department, [string]$Batch, [string]$Program)
-        $base = "OU=EMIS Users,$($script:ADDomain)"
+        $base = "OU=EMIS Users,DC=emis,DC=local"
         if ($Department -eq "Students" -and $Batch) { return "OU=$Batch,OU=Students,$base" }
         if ($Department -eq "Faculty" -and $Program) { return "OU=$Program,OU=Faculty,$base" }
         return "OU=$Department,$base"
@@ -268,7 +268,7 @@ Start-PodeServer -Threads $Threads {
             return $false
         }
 
-        $keys = @(Get-Content $script:KeyFilePath -Raw | ConvertFrom-Json)
+        $keys = @(Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json)
         $matched = $keys | Where-Object { $_.Key -eq $apiKey }
 
         if (-not $matched) {
@@ -306,7 +306,7 @@ Start-PodeServer -Threads $Threads {
             $labs = Get-Labs
             Write-PodeJsonResponse -Value @{
                 status    = "healthy"
-                domain    = $script:ADDomainDNS
+                domain    = "emis.local"
                 dc        = $dc.HostName[0]
                 labs      = $labs.Count
                 timestamp = (Get-Date -Format "o")
@@ -334,7 +334,7 @@ Start-PodeServer -Threads $Threads {
 
         try {
             $ctx = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Domain)
-            $valid = $ctx.ValidateCredentials("$safeUser@$($script:ADDomainDNS)", $body.password)
+            $valid = $ctx.ValidateCredentials("$safeUser@emis.local", $body.password)
             $ctx.Dispose()
         } catch { $valid = $false }
 
@@ -357,7 +357,7 @@ Start-PodeServer -Threads $Threads {
             }
 
             # Find or create a session key for this user
-            $keys = @(Get-Content $script:KeyFilePath -Raw | ConvertFrom-Json)
+            $keys = @(Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json)
             $existing = $keys | Where-Object { $_.Name -eq "session:$safeUser" -and $_.Role -eq $role }
 
             if ($existing) {
@@ -373,7 +373,7 @@ Start-PodeServer -Threads $Threads {
                     Username = $safeUser
                     Created  = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
                 }
-                $keys | ConvertTo-Json -Depth 5 | Set-Content $script:KeyFilePath -Encoding UTF8
+                $keys | ConvertTo-Json -Depth 5 | Set-Content "C:\emis-api\api-keys.json" -Encoding UTF8
             }
 
             Write-PodeJsonResponse -Value @{
@@ -432,7 +432,7 @@ Start-PodeServer -Threads $Threads {
 
             # Superadmin gets user counts too
             if ($WebEvent.Data['_role'] -eq 'superadmin') {
-                $base = "OU=EMIS Users,$($script:ADDomain)"
+                $base = "OU=EMIS Users,DC=emis,DC=local"
                 $totalUsers = (Get-ADUser -SearchBase $base -Filter * | Measure-Object).Count
                 $enabledUsers = (Get-ADUser -SearchBase $base -Filter 'Enabled -eq $true' | Measure-Object).Count
                 $students = (Get-ADUser -SearchBase "OU=Students,$base" -Filter * | Measure-Object).Count
@@ -471,7 +471,7 @@ Start-PodeServer -Threads $Threads {
         if ($WebEvent.Data['_role'] -eq 'teacher') { $dept = "Students" }
 
         try {
-            $searchBase = "OU=EMIS Users,$($script:ADDomain)"
+            $searchBase = "OU=EMIS Users,DC=emis,DC=local"
             if ($dept -eq "Students" -and $batch) {
                 $searchBase = "OU=$batch,OU=Students,$searchBase"
             } elseif ($dept -eq "Faculty" -and $program) {
@@ -555,9 +555,9 @@ Start-PodeServer -Threads $Threads {
             $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
             $targetOU   = Get-UserOU -Department $body.department -Batch $body.batch -Program $body.program
             $role       = if ($body.role) { $body.role } elseif ($script:RoleMap.ContainsKey($body.department)) { $script:RoleMap[$body.department] } else { $null }
-            $email      = if ($body.email) { $body.email } else { "$safeUsername@$($script:ADDomainDNS)" }
+            $email      = if ($body.email) { $body.email } else { "$safeUsername@emis.local" }
 
-            New-ADUser -SamAccountName $safeUsername -UserPrincipalName "$safeUsername@$($script:ADDomainDNS)" `
+            New-ADUser -SamAccountName $safeUsername -UserPrincipalName "$safeUsername@emis.local" `
                 -Name "$($body.firstName) $($body.lastName)" -GivenName $body.firstName -Surname $body.lastName `
                 -DisplayName "$($body.firstName) $($body.lastName)" -EmailAddress $email `
                 -Title $body.title -Department $body.department -Office "EMIS Campus" `
@@ -608,9 +608,9 @@ Start-PodeServer -Threads $Threads {
                 $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
                 $targetOU   = Get-UserOU -Department $u.department -Batch $u.batch -Program $u.program
                 $role       = if ($u.role) { $u.role } elseif ($script:RoleMap.ContainsKey($u.department)) { $script:RoleMap[$u.department] } else { $null }
-                $email      = if ($u.email) { $u.email } else { "$safe@$($script:ADDomainDNS)" }
+                $email      = if ($u.email) { $u.email } else { "$safe@emis.local" }
 
-                New-ADUser -SamAccountName $safe -UserPrincipalName "$safe@$($script:ADDomainDNS)" `
+                New-ADUser -SamAccountName $safe -UserPrincipalName "$safe@emis.local" `
                     -Name "$($u.firstName) $($u.lastName)" -GivenName $u.firstName -Surname $u.lastName `
                     -DisplayName "$($u.firstName) $($u.lastName)" -EmailAddress $email `
                     -Title $u.title -Department $u.department -Office "EMIS Campus" `
@@ -636,7 +636,7 @@ Start-PodeServer -Threads $Threads {
 
         try {
             $user = Get-ADUser -Identity $username -Properties MemberOf -ErrorAction Stop
-            $disabledOU = "OU=Disabled Accounts,$($script:ADDomain)"
+            $disabledOU = "OU=Disabled Accounts,DC=emis,DC=local"
             foreach ($group in $user.MemberOf) {
                 $gn = (Get-ADGroup $group).Name
                 if ($gn -ne "Domain Users") { Remove-ADGroupMember -Identity $group -Members $username -Confirm:$false }
@@ -663,8 +663,8 @@ Start-PodeServer -Threads $Threads {
             return
         }
         try {
-            $searchBase = "OU=$batch,OU=Students,OU=EMIS Users,$($script:ADDomain)"
-            $disabledOU = "OU=Disabled Accounts,$($script:ADDomain)"
+            $searchBase = "OU=$batch,OU=Students,OU=EMIS Users,DC=emis,DC=local"
+            $disabledOU = "OU=Disabled Accounts,DC=emis,DC=local"
             $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf
             $disabled = 0; $errors = @()
             foreach ($user in $users) {
@@ -695,8 +695,8 @@ Start-PodeServer -Threads $Threads {
             return
         }
         try {
-            $searchBase = "OU=$program,OU=Faculty,OU=EMIS Users,$($script:ADDomain)"
-            $disabledOU = "OU=Disabled Accounts,$($script:ADDomain)"
+            $searchBase = "OU=$program,OU=Faculty,OU=EMIS Users,DC=emis,DC=local"
+            $disabledOU = "OU=Disabled Accounts,DC=emis,DC=local"
             $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf
             $disabled = 0; $errors = @()
             foreach ($user in $users) {
