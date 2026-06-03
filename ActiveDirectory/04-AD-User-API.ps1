@@ -78,7 +78,8 @@ if (-not (Get-Module -ListAvailable -Name Pode)) {
 Import-Module Pode
 Import-Module ActiveDirectory
 
-$ConfigDir = $PSScriptRoot
+$ConfigDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Definition }
+if (-not $ConfigDir) { $ConfigDir = "C:\emis-api" }
 $KeyFile   = Join-Path $ConfigDir "api-keys.json"
 $LabFile   = Join-Path $ConfigDir "labs.json"
 
@@ -184,17 +185,17 @@ if (-not (Test-Path $LabFile)) {
 Start-PodeServer -Threads $Threads {
 
     # - Server Config -
-    if ($using:HttpOnly) {
-        Add-PodeEndpoint -Address * -Port $using:Port -Protocol Http
+    if ($HttpOnly) {
+        Add-PodeEndpoint -Address * -Port $Port -Protocol Http
     } else {
-        Add-PodeEndpoint -Address * -Port $using:Port -Protocol Https -SelfSigned
+        Add-PodeEndpoint -Address * -Port $Port -Protocol Https -SelfSigned
     }
 
     New-PodeLoggingMethod -Terminal | Enable-PodeRequestLogging
     New-PodeLoggingMethod -Terminal | Enable-PodeErrorLogging
 
     # - Serve static dashboard files -
-    $webDir = Join-Path $using:ConfigDir "web"
+    $webDir = Join-Path $ConfigDir "web"
     if (Test-Path $webDir) {
         Add-PodeStaticRoute -Path '/web' -Source $webDir -Defaults @('index.html')
     }
@@ -210,8 +211,10 @@ Start-PodeServer -Threads $Threads {
     # - Load Config -
     $script:ADDomain    = (Get-ADDomain).DistinguishedName
     $script:ADDomainDNS = (Get-ADDomain).DNSRoot
-    $script:KeyFilePath = $using:KeyFile
-    $script:LabFilePath = $using:LabFile
+    $script:KeyFilePath = $KeyFile
+    $script:LabFilePath = $LabFile
+    $script:MsgQueueFile = Join-Path $ConfigDir "message-queue.json"
+    if (-not (Test-Path $script:MsgQueueFile)) { '[]' | Set-Content $script:MsgQueueFile -Encoding UTF8 }
 
     $script:ValidBatches     = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
     $script:ValidPrograms    = @("Computer Engineering", "Electronics Engineering", "Civil Engineering", "Electrical Engineering")
@@ -459,8 +462,8 @@ Start-PodeServer -Threads $Threads {
         $batch    = $WebEvent.Query['batch']
         $program  = $WebEvent.Query['program']
         $search   = $WebEvent.Query['search']
-        $page     = [int]($WebEvent.Query['page'] ?? 1)
-        $pageSize = [int]($WebEvent.Query['pageSize'] ?? 50)
+        $page     = if ($WebEvent.Query['page'])     { [int]$WebEvent.Query['page'] }     else { 1 }
+        $pageSize = if ($WebEvent.Query['pageSize']) { [int]$WebEvent.Query['pageSize'] } else { 50 }
         if ($pageSize -gt 200) { $pageSize = 200 }
         if ($page -lt 1) { $page = 1 }
 
@@ -1011,7 +1014,7 @@ Start-PodeServer -Threads $Threads {
         }
     }
 
-    # - POST /api/v1/pcs/:hostname/message -
+    # - POST /api/v1/pcs/:hostname/message - (queues message for polling)
     Add-PodeRoute -Method Post -Path '/api/v1/pcs/:hostname/message' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
@@ -1029,8 +1032,54 @@ Start-PodeServer -Threads $Threads {
         }
         try {
             $safeMsg = $body.message -replace '[^a-zA-Z0-9 .,!?@#$%&()\-]', ''
-            Invoke-Command -ComputerName $hostname -ScriptBlock { param($m); msg * $m } -ArgumentList $safeMsg -ErrorAction Stop
-            Write-PodeJsonResponse -Value @{ message = "Message sent"; hostname = $hostname; text = $safeMsg }
+            Lock-PodeObject -ScriptBlock {
+                $queue = @()
+                if (Test-Path $script:MsgQueueFile) {
+                    $raw = Get-Content $script:MsgQueueFile -Raw -Encoding UTF8
+                    if ($raw) { $queue = @($raw | ConvertFrom-Json) }
+                }
+                $queue += @{
+                    id        = [guid]::NewGuid().ToString()
+                    hostname  = $hostname.ToUpper()
+                    message   = $safeMsg
+                    sender    = $WebEvent.Auth.User.Username
+                    timestamp = (Get-Date).ToString('o')
+                    delivered = $false
+                }
+                $queue | ConvertTo-Json -Depth 5 | Set-Content $script:MsgQueueFile -Encoding UTF8
+            }
+            Write-PodeJsonResponse -Value @{ message = "Message queued"; hostname = $hostname; text = $safeMsg }
+        } catch {
+            Set-PodeResponseStatus -Code 500
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
+        }
+    }
+
+    # - GET /api/v1/pcs/:hostname/pending-messages - (lab PCs poll this)
+    Add-PodeRoute -Method Get -Path '/api/v1/pcs/:hostname/pending-messages' -ScriptBlock {
+        $hostname = $WebEvent.Parameters['hostname'].ToUpper()
+        $apiKey = $WebEvent.Request.Headers['X-API-Key']
+        if ($apiKey -ne 'polling-agent') {
+            if (-not (Assert-Role @("superadmin"))) { return }
+        }
+        try {
+            $pending = @()
+            Lock-PodeObject -ScriptBlock {
+                $queue = @()
+                if (Test-Path $script:MsgQueueFile) {
+                    $raw = Get-Content $script:MsgQueueFile -Raw -Encoding UTF8
+                    if ($raw) { $queue = @($raw | ConvertFrom-Json) }
+                }
+                $pending = @($queue | Where-Object { $_.hostname -eq $hostname -and -not $_.delivered })
+                # Mark as delivered
+                foreach ($msg in $queue) {
+                    if ($msg.hostname -eq $hostname -and -not $msg.delivered) {
+                        $msg.delivered = $true
+                    }
+                }
+                $queue | ConvertTo-Json -Depth 5 | Set-Content $script:MsgQueueFile -Encoding UTF8
+            }
+            Write-PodeJsonResponse -Value @{ hostname = $hostname; count = $pending.Count; messages = $pending }
         } catch {
             Set-PodeResponseStatus -Code 500
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
@@ -1232,8 +1281,8 @@ Start-PodeServer -Threads $Threads {
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host " EMIS Lab & User Management API" -ForegroundColor White
     Write-Host " Domain:  $($script:ADDomainDNS)"
-    Write-Host " Port:    $($using:Port)"
-    Write-Host " Threads: $($using:Threads)"
+    Write-Host " Port:    $Port"
+    Write-Host " Threads: $Threads"
     Write-Host " Labs:    $($labs.Count) ($totalPCs PCs)"
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host ""
@@ -1243,7 +1292,7 @@ Start-PodeServer -Threads $Threads {
     Write-Host "   student    - Change own password only"
     Write-Host ""
     Write-Host " Dashboard:" -ForegroundColor Yellow
-    Write-Host "   Open browser: https://localhost:$($using:Port)/"
+    Write-Host "   Open browser: https://localhost:$Port/"
     Write-Host ""
     Write-Host " Auth Endpoints:" -ForegroundColor Yellow
     Write-Host "   POST  /api/v1/auth/login"
