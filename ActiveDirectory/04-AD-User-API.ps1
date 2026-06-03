@@ -277,7 +277,10 @@ Start-PodeServer -Threads $Threads {
             return $false
         }
 
-        # Attach caller identity
+        # Attach caller identity to request
+        if ($null -eq $WebEvent.Data -or $WebEvent.Data -isnot [hashtable]) {
+            $WebEvent.Data = @{}
+        }
         $WebEvent.Data['_role']     = $matched.Role
         $WebEvent.Data['_name']     = $matched.Name
         $WebEvent.Data['_username'] = $matched.Username   # student's AD username
