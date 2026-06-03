@@ -407,8 +407,9 @@ Start-PodeServer -Threads $Threads {
             return $false
         }
 
-        $keys = @(Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json)
-        $matched = $keys | Where-Object { $_.Key -eq $apiKey } | Select-Object -First 1
+        $keys = Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json
+        $matched = $null
+        foreach ($k in $keys) { if ($k.Key -eq $apiKey) { $matched = $k; break } }
 
         if (-not $matched) {
             Set-PodeResponseStatus -Code 403 -NoErrorPage
@@ -504,8 +505,11 @@ Start-PodeServer -Threads $Threads {
             }
 
             # Find or create a session key for this user
-            $keys = @(Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json)
-            $existing = $keys | Where-Object { $_.Name -eq "session:$safeUser" -and $_.Role -eq $role }
+            $parsedKeys = Get-Content "C:\emis-api\api-keys.json" -Raw | ConvertFrom-Json
+            $keys = @()
+            foreach ($k in $parsedKeys) { $keys += $k }
+            $existing = $null
+            foreach ($k in $keys) { if ($k.Name -eq "session:$safeUser" -and $k.Role -eq $role) { $existing = $k; break } }
 
             if ($existing) {
                 $sessionKey = $existing.Key
