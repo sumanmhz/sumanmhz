@@ -1027,9 +1027,12 @@ Start-PodeServer -Threads $Threads {
         if (-not (Assert-Role @("superadmin"))) { return }
         $hostname = $WebEvent.Parameters['hostname']
         $body = $WebEvent.Data
-        if ([string]::IsNullOrWhiteSpace($body.message)) {
+        $msgText = $null
+        if ($body -is [hashtable]) { $msgText = $body['message'] }
+        elseif ($body) { $msgText = $body.message }
+        if ([string]::IsNullOrWhiteSpace($msgText)) {
             Set-PodeResponseStatus -Code 400
-            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'message'" }
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'message'"; debug_type = $body.GetType().Name; debug_keys = "$($body.Keys -join ',')" }
             return
         }
         $pcInfo = Find-PC -Hostname $hostname
