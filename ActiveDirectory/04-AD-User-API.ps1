@@ -1062,7 +1062,8 @@ Start-PodeServer -Threads $Threads {
             $valid = $false
             try {
                 $ctx = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Domain)
-                $valid = $ctx.ValidateCredentials($user.UserPrincipalName, $body.currentPassword)
+                $credential = if ($user.UserPrincipalName) { $user.UserPrincipalName } else { $user.SamAccountName }
+                $valid = $ctx.ValidateCredentials($credential, $body.currentPassword)
                 $ctx.Dispose()
             } catch { $valid = $false }
 
