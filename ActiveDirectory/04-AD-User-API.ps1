@@ -35,7 +35,7 @@
 #   DELETE /api/v1/users/staff/department/:dept    - Disable entire department staff
 #
 #   --- Photos ---
-#   POST   /api/v1/photos/bulk                     - Bulk upload photos (base64 JSON array)
+#   POST   /api/v1/photos/upload                   - Upload photo (multipart file upload)
 #   GET    /api/v1/photos/:filename                - Get a photo
 #
 #   --- Password ---
@@ -166,10 +166,10 @@ if ($GenerateKey) {
 
     $keys = @()
     if (Test-Path $KeyFile) {
-        $keys = @(Get-Content $KeyFile -Raw | ConvertFrom-Json)
+        $keys = [array](Get-Content $KeyFile -Raw | ConvertFrom-Json)
     }
     $keys += $keyEntry
-    $keys | ConvertTo-Json -Depth 5 | Set-Content $KeyFile -Encoding UTF8
+    ConvertTo-Json -InputObject @($keys) -Depth 5 | Set-Content $KeyFile -Encoding UTF8
 
     Write-Host ""
     Write-Host "Service Key Generated" -ForegroundColor Green
@@ -216,7 +216,7 @@ if (-not (Test-Path $LabFile)) {
             PCs      = $pcs
         }
     }
-    $template | ConvertTo-Json -Depth 5 | Set-Content $LabFile -Encoding UTF8
+    ConvertTo-Json -InputObject @($template) -Depth 5 | Set-Content $LabFile -Encoding UTF8
     Write-Host "  Created: $LabFile (5 labs, 24 PCs each = 120 total)" -ForegroundColor Green
     Write-Host "  Edit this file to match your actual lab layout." -ForegroundColor Yellow
     Write-Host ""
@@ -312,7 +312,7 @@ Start-PodeServer -Threads $Threads {
 
     # - Helper: Load labs from JSON -
     function Get-Labs {
-        @(Get-Content "C:\emis-api\labs.json" -Raw | ConvertFrom-Json)
+        [array](Get-Content "C:\emis-api\labs.json" -Raw | ConvertFrom-Json)
     }
 
     function Get-Lab {
@@ -334,8 +334,8 @@ Start-PodeServer -Threads $Threads {
         return $base
     }
 
-    # - Helper: Parse roll number â†’ batch, program, serial -
-    # Format: THA080BCT002 â†’ THA prefix, 080 batch, BCT program, 002 serial
+    # - Helper: Parse roll number → batch, program, serial -
+    # Format: THA080BCT002 → THA prefix, 080 batch, BCT program, 002 serial
     function Parse-RollNumber {
         param([string]$RollNo)
         if ($RollNo -match '^THA(\d{3})(BCT|BEI|BCE|BAR|BME|BIE|BAM|MMDM|MEE|MIISE)(\d+)$') {
@@ -349,7 +349,7 @@ Start-PodeServer -Threads $Threads {
         param([string]$IP)
         $labSubnetsFile = "C:\emis-api\lab-subnets.json"
         if (-not (Test-Path $labSubnetsFile)) { return $null }
-        $labSubnets = @(Get-Content $labSubnetsFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+        $labSubnets = [array](Get-Content $labSubnetsFile -Raw -Encoding UTF8 | ConvertFrom-Json)
         $ipSubnet = ($IP -replace '\.\d+$', '.0/24')
         $match = $labSubnets | Where-Object { $_.Subnet -eq $ipSubnet }
         if ($match) { return $match.Name }
@@ -363,7 +363,7 @@ Start-PodeServer -Threads $Threads {
         $log = @()
         if (Test-Path $logFile) {
             $raw = Get-Content $logFile -Raw -Encoding UTF8
-            if ($raw -and $raw.Trim().Length -gt 2) { $log = @($raw | ConvertFrom-Json) }
+            if ($raw -and $raw.Trim().Length -gt 2) { $log = [array]($raw | ConvertFrom-Json) }
         }
         # Keep last 10000 entries max
         if ($log.Count -ge 10000) { $log = @($log | Select-Object -Last 9999) }
@@ -375,7 +375,7 @@ Start-PodeServer -Threads $Threads {
             target    = $Target
             detail    = $Detail
         }
-        $log | ConvertTo-Json -Depth 5 | Set-Content $logFile -Encoding UTF8
+        ConvertTo-Json -InputObject @($log) -Depth 5 | Set-Content $logFile -Encoding UTF8
     }
 
     # - Helper: Send Wake-on-LAN magic packet -
@@ -524,7 +524,7 @@ Start-PodeServer -Threads $Threads {
                     Username = $safeUser
                     Created  = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
                 }
-                $keys | ConvertTo-Json -Depth 5 | Set-Content "C:\emis-api\api-keys.json" -Encoding UTF8
+                ConvertTo-Json -InputObject @($keys) -Depth 5 | Set-Content "C:\emis-api\api-keys.json" -Encoding UTF8
             }
 
             Write-PodeJsonResponse -Value @{
@@ -958,50 +958,63 @@ Start-PodeServer -Threads $Threads {
     #                    PHOTO MANAGEMENT
     # -
 
-    # - POST /api/v1/photos/bulk - Bulk upload photos as base64 -
-    # Body: { "photos": [ { "filename": "080BCE002.jpg", "base64": "/9j/4AAQ..." }, ... ] }
-    Add-PodeRoute -Method Post -Path '/api/v1/photos/bulk' -ScriptBlock {
+    # - POST /api/v1/photos/upload - Upload a photo file (multipart/form-data) -
+    # Usage: curl -F "photo=@THA080BCT002.jpg" -H "X-Api-Key: ..." http://host/api/v1/photos/upload
+    # Optional form field "username" to rename file: curl -F "photo=@photo.jpg" -F "username=THA080BCT002" ...
+    Add-PodeRoute -Method Post -Path '/api/v1/photos/upload' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
-        $body = $WebEvent.Data
-        $photoList = $body.photos
-        if (-not $photoList -or $photoList.Count -eq 0) {
+
+        $filename = $WebEvent.Data['photo']
+        if (-not $filename) {
             Set-PodeResponseStatus -Code 400 -NoErrorPage
-            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'photos' array" }
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "No file uploaded. Use multipart/form-data with field name 'photo'" }
             return
         }
-        if ($photoList.Count -gt 500) {
+
+        $fileInfo = $WebEvent.Files[$filename]
+        if (-not $fileInfo) {
             Set-PodeResponseStatus -Code 400 -NoErrorPage
-            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Max 500 photos per request" }
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "File data not found for '$filename'" }
             return
+        }
+
+        $bytes = $fileInfo.Bytes
+        if ($bytes.Length -gt 2MB) {
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "File too large (max 2MB)" }
+            return
+        }
+
+        $ext = [IO.Path]::GetExtension($filename).ToLower()
+        if ($ext -notin @('.jpg', '.jpeg', '.png')) {
+            Set-PodeResponseStatus -Code 400 -NoErrorPage
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Only .jpg, .jpeg, .png files allowed" }
+            return
+        }
+
+        # If 'username' form field provided, use it as the filename
+        $targetName = if ($WebEvent.Data['username']) {
+            $safeUser = $WebEvent.Data['username'] -replace '[^a-zA-Z0-9._-]', ''
+            "$safeUser$ext"
+        } else {
+            $filename -replace '[^a-zA-Z0-9._-]', ''
         }
 
         $photosDir = "C:\emis-api\photos"
         if (-not (Test-Path $photosDir)) { New-Item -ItemType Directory -Path $photosDir -Force | Out-Null }
 
-        $saved = @(); $failed = @()
-        foreach ($p in $photoList) {
-            if ($p -isnot [hashtable]) {
-                $ph = @{}; $p.PSObject.Properties | ForEach-Object { $ph[$_.Name] = $_.Value }; $p = $ph
+        try {
+            [IO.File]::WriteAllBytes((Join-Path $photosDir $targetName), $bytes)
+            Write-AuditLog -Action "photo-upload" -Target $targetName -Detail "Size: $($bytes.Length) bytes" -Actor $WebEvent.Data['_name']
+            Write-PodeJsonResponse -StatusCode 201 -Value @{
+                message  = "Photo uploaded"
+                filename = $targetName
+                size     = $bytes.Length
+                url      = "/api/v1/photos/$targetName"
             }
-            $filename = $p['filename']
-            $b64 = $p['base64']
-            if (-not $filename -or -not $b64) { $failed += @{ filename = $filename; reason = "Missing filename or base64" }; continue }
-            # Sanitize filename - only allow alphanumeric, dash, underscore, dot
-            $safeFile = $filename -replace '[^a-zA-Z0-9._-]', ''
-            if ($safeFile -notmatch '\.(jpg|jpeg|png)$') { $failed += @{ filename = $filename; reason = "Must be .jpg, .jpeg, or .png" }; continue }
-            try {
-                $bytes = [Convert]::FromBase64String($b64)
-                if ($bytes.Length -gt 1MB) { $failed += @{ filename = $safeFile; reason = "File too large (max 1MB)" }; continue }
-                [IO.File]::WriteAllBytes((Join-Path $photosDir $safeFile), $bytes)
-                $saved += @{ filename = $safeFile; size = $bytes.Length; url = "/api/v1/photos/$safeFile" }
-            } catch {
-                $failed += @{ filename = $safeFile; reason = $_.Exception.Message }
-            }
-        }
-
-        Write-PodeJsonResponse -Value @{
-            summary = @{ total = $photoList.Count; saved = $saved.Count; failed = $failed.Count }
-            saved = $saved; failed = $failed
+        } catch {
+            Set-PodeResponseStatus -Code 500 -NoErrorPage
+            Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
 
@@ -1258,7 +1271,7 @@ Start-PodeServer -Threads $Threads {
         # Check pc-registry.json
         $regFile = "C:\emis-api\pc-registry.json"
         if (Test-Path $regFile) {
-            $registry = @(Get-Content $regFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+            $registry = [array](Get-Content $regFile -Raw -Encoding UTF8 | ConvertFrom-Json)
             $found = $registry | Where-Object { $_.Hostname -eq $Hostname }
             if ($found) { return @{ Lab = @{ Name = $found.Lab }; PC = $found } }
         }
@@ -1350,7 +1363,7 @@ Start-PodeServer -Threads $Threads {
             $registry = @()
             if (Test-Path $regFile) {
                 $raw = Get-Content $regFile -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $registry = [array]($raw | ConvertFrom-Json) }
             }
             # Determine lab from subnet (auto-detect)
             $subnet = ($ip -replace '\.\d+$', '.0/24')
@@ -1378,7 +1391,7 @@ Start-PodeServer -Threads $Threads {
                     Online    = $true
                 }
             }
-            $registry | ConvertTo-Json -Depth 5 | Set-Content $regFile -Encoding UTF8
+            ConvertTo-Json -InputObject @($registry) -Depth 5 | Set-Content $regFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "PC registered"; hostname = $hostname.ToUpper(); lab = $labName; ip = $ip }
         } catch {
             Set-PodeResponseStatus -Code 500 -NoErrorPage
@@ -1393,7 +1406,7 @@ Start-PodeServer -Threads $Threads {
         $registry = @()
         if (Test-Path $regFile) {
             $raw = Get-Content $regFile -Raw -Encoding UTF8
-            if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+            if ($raw -and $raw.Trim().Length -gt 2) { $registry = [array]($raw | ConvertFrom-Json) }
         }
         Write-PodeJsonResponse -Value @{ count = $registry.Count; pcs = $registry }
     }
@@ -1423,7 +1436,7 @@ Start-PodeServer -Threads $Threads {
             $queue = @()
             if (Test-Path $mqFile) {
                 $raw = Get-Content $mqFile -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $queue = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $queue = [array]($raw | ConvertFrom-Json) }
             }
             $senderName = 'admin'
             if ($WebEvent.Auth -and $WebEvent.Auth.User) { $senderName = $WebEvent.Auth.User.Username }
@@ -1435,7 +1448,7 @@ Start-PodeServer -Threads $Threads {
                 timestamp = (Get-Date).ToString('o')
                 delivered = $false
             }
-            $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
+            ConvertTo-Json -InputObject @($queue) -Depth 5 | Set-Content $mqFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "Message queued"; hostname = $hostname; text = $safeMsg }
         } catch {
             Set-PodeResponseStatus -Code 500 -NoErrorPage
@@ -1456,7 +1469,7 @@ Start-PodeServer -Threads $Threads {
             $queue = @()
             if (Test-Path $mqFile) {
                 $raw = Get-Content $mqFile -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $queue = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $queue = [array]($raw | ConvertFrom-Json) }
             }
             $pending = @($queue | Where-Object { $_.hostname -eq $hostname -and -not $_.delivered })
             foreach ($msg in $queue) {
@@ -1464,7 +1477,7 @@ Start-PodeServer -Threads $Threads {
                     $msg.delivered = $true
                 }
             }
-            $queue | ConvertTo-Json -Depth 5 | Set-Content $mqFile -Encoding UTF8
+            ConvertTo-Json -InputObject @($queue) -Depth 5 | Set-Content $mqFile -Encoding UTF8
             Write-PodeJsonResponse -Value @{ hostname = $hostname; count = $pending.Count; messages = $pending }
         } catch {
             Set-PodeResponseStatus -Code 500 -NoErrorPage
@@ -1673,7 +1686,7 @@ Start-PodeServer -Threads $Threads {
             $log = @()
             if (Test-Path $logFile) {
                 $raw = Get-Content $logFile -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $log = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $log = [array]($raw | ConvertFrom-Json) }
             }
             $log = @($log | Sort-Object { $_.timestamp } -Descending)
             if ($action) { $log = @($log | Where-Object { $_.action -like "*$action*" }) }
@@ -1697,14 +1710,14 @@ Start-PodeServer -Threads $Threads {
         $f = "C:\emis-api\blocked-sites.json"
         if (Test-Path $f) {
             $raw = Get-Content $f -Raw -Encoding UTF8
-            if ($raw -and $raw.Trim().Length -gt 2) { $sites = @($raw | ConvertFrom-Json) }
+            if ($raw -and $raw.Trim().Length -gt 2) { $sites = [array]($raw | ConvertFrom-Json) }
         }
         Write-PodeJsonResponse -Value @{ count = $sites.Count; sites = $sites }
     }
 
     # - POST /api/v1/websites/block - Block a site -
     # Body: { "domain": "facebook.com", "reason": "Social media", "labs": ["Lab-D101"] }
-    # labs is optional â€” omit to block on ALL labs
+    # labs is optional — omit to block on ALL labs
     Add-PodeRoute -Method Post -Path '/api/v1/websites/block' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $body = $WebEvent.Data
@@ -1725,7 +1738,7 @@ Start-PodeServer -Threads $Threads {
             $sites = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $sites = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $sites = [array]($raw | ConvertFrom-Json) }
             }
             $existing = $sites | Where-Object { $_.domain -eq $safeDomain }
             if ($existing) {
@@ -1741,7 +1754,7 @@ Start-PodeServer -Threads $Threads {
                 blockedAt = (Get-Date).ToString('o')
             }
             $sites += $entry
-            $sites | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($sites) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "website-block" -Target $safeDomain -Detail "Reason: $($entry.reason), Labs: $($entry.labs -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Site blocked"; domain = $safeDomain; labs = $entry.labs }
         } catch {
@@ -1759,7 +1772,7 @@ Start-PodeServer -Threads $Threads {
             $sites = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $sites = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $sites = [array]($raw | ConvertFrom-Json) }
             }
             $found = $sites | Where-Object { $_.domain -eq $domain }
             if (-not $found) {
@@ -1768,7 +1781,7 @@ Start-PodeServer -Threads $Threads {
                 return
             }
             $sites = @($sites | Where-Object { $_.domain -ne $domain })
-            $sites | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($sites) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "website-unblock" -Target $domain -Detail "Unblocked" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Site unblocked"; domain = $domain }
         } catch {
@@ -1788,7 +1801,7 @@ Start-PodeServer -Threads $Threads {
         $f = "C:\emis-api\blocked-apps.json"
         if (Test-Path $f) {
             $raw = Get-Content $f -Raw -Encoding UTF8
-            if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
+            if ($raw -and $raw.Trim().Length -gt 2) { $apps = [array]($raw | ConvertFrom-Json) }
         }
         Write-PodeJsonResponse -Value @{ count = $apps.Count; apps = $apps }
     }
@@ -1810,7 +1823,7 @@ Start-PodeServer -Threads $Threads {
             $apps = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $apps = [array]($raw | ConvertFrom-Json) }
             }
             if ($apps | Where-Object { $_.processName -eq $safeName }) {
                 Set-PodeResponseStatus -Code 409 -NoErrorPage
@@ -1825,7 +1838,7 @@ Start-PodeServer -Threads $Threads {
                 blockedAt   = (Get-Date).ToString('o')
             }
             $apps += $entry
-            $apps | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($apps) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "app-block" -Target $safeName -Detail "Labs: $($entry.labs -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "App blocked"; processName = $safeName; labs = $entry.labs }
         } catch {
@@ -1843,7 +1856,7 @@ Start-PodeServer -Threads $Threads {
             $apps = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $apps = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $apps = [array]($raw | ConvertFrom-Json) }
             }
             if (-not ($apps | Where-Object { $_.processName -eq $appName })) {
                 Set-PodeResponseStatus -Code 404 -NoErrorPage
@@ -1851,7 +1864,7 @@ Start-PodeServer -Threads $Threads {
                 return
             }
             $apps = @($apps | Where-Object { $_.processName -ne $appName })
-            $apps | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($apps) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "app-unblock" -Target $appName -Detail "Unblocked" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "App unblocked"; processName = $appName }
         } catch {
@@ -1994,7 +2007,7 @@ Start-PodeServer -Threads $Threads {
             $sessions = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = [array]($raw | ConvertFrom-Json) }
             }
             # Keep last 50000 entries
             if ($sessions.Count -ge 50000) { $sessions = @($sessions | Select-Object -Last 49999) }
@@ -2007,7 +2020,7 @@ Start-PodeServer -Threads $Threads {
                 lab         = Get-LabFromIP -IP $WebEvent.Request.RemoteEndPoint.Address.ToString()
                 timestamp   = (Get-Date).ToString('o')
             }
-            $sessions | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($sessions) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-PodeJsonResponse -Value @{ message = "Session reported"; hostname = $hostname; action = $action }
         } catch {
             Set-PodeResponseStatus -Code 500 -NoErrorPage
@@ -2024,7 +2037,7 @@ Start-PodeServer -Threads $Threads {
             $sessions = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = [array]($raw | ConvertFrom-Json) }
             }
             # Get latest session per hostname (login/logout/active/idle)
             $grouped = @{}
@@ -2063,7 +2076,7 @@ Start-PodeServer -Threads $Threads {
             $sessions = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = [array]($raw | ConvertFrom-Json) }
             }
             $sessions = @($sessions | Sort-Object { $_.timestamp } -Descending)
             if ($hostname) { $sessions = @($sessions | Where-Object { $_.hostname -eq $hostname.ToUpper() }) }
@@ -2087,7 +2100,7 @@ Start-PodeServer -Threads $Threads {
             $sessions = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $sessions = [array]($raw | ConvertFrom-Json) }
             }
             $grouped = @{}
             foreach ($s in $sessions) {
@@ -2121,7 +2134,7 @@ Start-PodeServer -Threads $Threads {
             $announcements = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = [array]($raw | ConvertFrom-Json) }
             }
             # Filter active (not expired)
             $now = Get-Date
@@ -2151,7 +2164,7 @@ Start-PodeServer -Threads $Threads {
             $announcements = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = [array]($raw | ConvertFrom-Json) }
             }
             $entry = @{
                 id        = [guid]::NewGuid().ToString().Substring(0,8)
@@ -2164,7 +2177,7 @@ Start-PodeServer -Threads $Threads {
                 expiresAt = if ($body['expiresAt']) { $body['expiresAt'] } else { $null }
             }
             $announcements += $entry
-            $announcements | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($announcements) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "announcement-create" -Target $entry.id -Detail "Title: $($entry.title)" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Announcement created"; announcement = $entry }
         } catch {
@@ -2182,7 +2195,7 @@ Start-PodeServer -Threads $Threads {
             $announcements = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $announcements = [array]($raw | ConvertFrom-Json) }
             }
             if (-not ($announcements | Where-Object { $_.id -eq $annoId })) {
                 Set-PodeResponseStatus -Code 404 -NoErrorPage
@@ -2190,7 +2203,7 @@ Start-PodeServer -Threads $Threads {
                 return
             }
             $announcements = @($announcements | Where-Object { $_.id -ne $annoId })
-            $announcements | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($announcements) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "announcement-delete" -Target $annoId -Detail "Deleted" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Announcement deleted"; id = $annoId }
         } catch {
@@ -2212,7 +2225,7 @@ Start-PodeServer -Threads $Threads {
             $registry = @()
             if (Test-Path $regFile) {
                 $raw = Get-Content $regFile -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $registry = [array]($raw | ConvertFrom-Json) }
             }
             $pc = $registry | Where-Object { $_.Hostname -eq $hostname }
             if (-not $pc -or -not $pc.MAC) {
@@ -2239,7 +2252,7 @@ Start-PodeServer -Threads $Threads {
             $registry = @()
             if (Test-Path $regFile) {
                 $raw = Get-Content $regFile -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $registry = [array]($raw | ConvertFrom-Json) }
             }
             $labPCs = @($registry | Where-Object { $_.Lab -eq $labName -and $_.MAC })
             if ($labPCs.Count -eq 0) {
@@ -2275,7 +2288,7 @@ Start-PodeServer -Threads $Threads {
             $schedules = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = [array]($raw | ConvertFrom-Json) }
             }
             Write-PodeJsonResponse -Value @{ count = $schedules.Count; schedules = $schedules }
         } catch {
@@ -2311,7 +2324,7 @@ Start-PodeServer -Threads $Threads {
             $schedules = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = [array]($raw | ConvertFrom-Json) }
             }
             # Remove existing schedule for this lab
             $schedules = @($schedules | Where-Object { $_.lab -ne $labName })
@@ -2327,7 +2340,7 @@ Start-PodeServer -Threads $Threads {
                 createdAt   = (Get-Date).ToString('o')
             }
             $schedules += $entry
-            $schedules | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($schedules) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "schedule-create" -Target $labName -Detail "Shutdown at $($entry.time) on $($entry.days -join ',')" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -StatusCode 201 -Value @{ message = "Schedule created"; schedule = $entry }
         } catch {
@@ -2345,7 +2358,7 @@ Start-PodeServer -Threads $Threads {
             $schedules = @()
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
-                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = @($raw | ConvertFrom-Json) }
+                if ($raw -and $raw.Trim().Length -gt 2) { $schedules = [array]($raw | ConvertFrom-Json) }
             }
             if (-not ($schedules | Where-Object { $_.id -eq $schedId })) {
                 Set-PodeResponseStatus -Code 404 -NoErrorPage
@@ -2353,7 +2366,7 @@ Start-PodeServer -Threads $Threads {
                 return
             }
             $schedules = @($schedules | Where-Object { $_.id -ne $schedId })
-            $schedules | ConvertTo-Json -Depth 5 | Set-Content $f -Encoding UTF8
+            ConvertTo-Json -InputObject @($schedules) -Depth 5 | Set-Content $f -Encoding UTF8
             Write-AuditLog -Action "schedule-delete" -Target $schedId -Detail "Deleted" -Actor $WebEvent.Data['_name']
             Write-PodeJsonResponse -Value @{ message = "Schedule deleted"; id = $schedId }
         } catch {
@@ -2381,7 +2394,7 @@ Start-PodeServer -Threads $Threads {
             if (Test-Path $regFile) {
                 $raw = Get-Content $regFile -Raw -Encoding UTF8
                 if ($raw -and $raw.Trim().Length -gt 2) {
-                    $registry = @($raw | ConvertFrom-Json)
+                    $registry = [array]($raw | ConvertFrom-Json)
                     $pc = $registry | Where-Object { $_.Hostname -eq $hostname }
                     if ($pc) { $labName = $pc.Lab }
                 }
@@ -2393,7 +2406,7 @@ Start-PodeServer -Threads $Threads {
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
                 if ($raw -and $raw.Trim().Length -gt 2) {
-                    $all = @($raw | ConvertFrom-Json)
+                    $all = [array]($raw | ConvertFrom-Json)
                     $blockedSites = @($all | Where-Object { $_.labs -contains "ALL" -or ($labName -and $_.labs -contains $labName) } | ForEach-Object { $_.domain })
                 }
             }
@@ -2404,7 +2417,7 @@ Start-PodeServer -Threads $Threads {
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
                 if ($raw -and $raw.Trim().Length -gt 2) {
-                    $all = @($raw | ConvertFrom-Json)
+                    $all = [array]($raw | ConvertFrom-Json)
                     $blockedApps = @($all | Where-Object { $_.labs -contains "ALL" -or ($labName -and $_.labs -contains $labName) } | ForEach-Object { $_.processName })
                 }
             }
@@ -2429,7 +2442,7 @@ Start-PodeServer -Threads $Threads {
                 $raw = Get-Content $f -Raw -Encoding UTF8
                 if ($raw -and $raw.Trim().Length -gt 2) {
                     $now = Get-Date
-                    $all = @($raw | ConvertFrom-Json)
+                    $all = [array]($raw | ConvertFrom-Json)
                     $announcements = @($all | Where-Object {
                         (-not $_.expiresAt -or (Get-Date $_.expiresAt) -gt $now) -and
                         ($_.labs -contains "ALL" -or ($labName -and $_.labs -contains $labName))
@@ -2443,7 +2456,7 @@ Start-PodeServer -Threads $Threads {
             if (Test-Path $f) {
                 $raw = Get-Content $f -Raw -Encoding UTF8
                 if ($raw -and $raw.Trim().Length -gt 2) {
-                    $all = @($raw | ConvertFrom-Json)
+                    $all = [array]($raw | ConvertFrom-Json)
                     $schedule = $all | Where-Object { $_.lab -eq $labName -and $_.enabled } | Select-Object -First 1
                 }
             }
@@ -2502,7 +2515,7 @@ Start-PodeServer -Threads $Threads {
     Write-Host "   DELETE /api/v1/users/staff/department/{dept}"
     Write-Host ""
     Write-Host " Photo Endpoints:" -ForegroundColor Yellow
-    Write-Host "   POST   /api/v1/photos/bulk                (base64 JSON array)"
+    Write-Host "   POST   /api/v1/photos/upload              (multipart file upload)"
     Write-Host "   GET    /api/v1/photos/{filename}"
     Write-Host ""
     Write-Host " Lab Endpoints:" -ForegroundColor Yellow
