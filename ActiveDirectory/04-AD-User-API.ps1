@@ -28,11 +28,15 @@
 #
 #   --- Users (superadmin) ---
 #   GET    /api/v1/users                          - List/search users
-#   POST   /api/v1/users                          - Create user
+#   POST   /api/v1/users                          - Create user (explicit: username, email, batch, program, department)
 #   POST   /api/v1/users/bulk                     - Bulk create users
 #   DELETE /api/v1/users/:username                 - Disable user
-#   DELETE /api/v1/users/batch/:batch              - Disable entire batch
-#   DELETE /api/v1/users/faculty/:program          - Disable entire program
+#   DELETE /api/v1/users/batch/:batch              - Disable entire batch (across all programs)
+#   DELETE /api/v1/users/staff/department/:dept    - Disable entire department staff
+#
+#   --- Photos ---
+#   POST   /api/v1/photos/bulk                     - Bulk upload photos (base64 JSON array)
+#   GET    /api/v1/photos/:filename                - Get a photo
 #
 #   --- Password ---
 #   PUT    /api/v1/users/:username/password        - Change password (student: own only)
@@ -200,6 +204,10 @@ Start-PodeServer -Threads $Threads {
         Add-PodeStaticRoute -Path '/web' -Source $webDir -Defaults @('index.html')
     }
 
+    # - Photos directory -
+    $photosDir = "C:\emis-api\photos"
+    if (-not (Test-Path $photosDir)) { New-Item -ItemType Directory -Path $photosDir -Force | Out-Null }
+
     # - Root redirect to dashboard -
     Add-PodeRoute -Method Get -Path '/' -ScriptBlock {
         Move-PodeResponseUrl -Url '/web/'
@@ -219,20 +227,28 @@ Start-PodeServer -Threads $Threads {
     if (-not (Test-Path $pcRegistryFile)) { '[]' | Set-Content $pcRegistryFile -Encoding UTF8 }
 
     $script:ValidBatches     = @("Batch-2080", "Batch-2081", "Batch-2082", "Batch-2083", "Batch-2084")
-    $script:ValidPrograms    = @("Computer Engineering", "Electronics Engineering", "Civil Engineering", "Electrical Engineering")
-    $script:ValidDepartments = @("IT Department", "Administration", "Faculty", "Students", "Finance", "Human Resources", "Library", "Research", "Engineering", "Management")
+    $script:ValidPrograms    = @("BCE", "BEI", "BAR", "BAE", "BME", "BCiE", "BIE", "MSc-IIS", "MSc-EQ", "PhD-ME", "BAS")
+    $script:ValidDepartments = @("DOAS", "DOA", "DAME", "DOCE", "DOECE", "DOIE", "Administration", "IT")
+    $script:ProgramToDept    = @{ BCE="DOECE"; BEI="DOECE"; BAR="DOA"; BAE="DAME"; BME="DAME"; BCiE="DOCE"; BIE="DOIE"; "MSc-IIS"="DOECE"; "MSc-EQ"="DOCE"; "PhD-ME"="DAME"; BAS="DOAS" }
+    $script:EmailDomain      = "tcioe.edu.np"
+
+    # Lab-to-subnet mapping
+    $labSubnetsFile = "C:\emis-api\lab-subnets.json"
+    if (-not (Test-Path $labSubnetsFile)) {
+        @(
+            @{ Name = "Lab-D101"; Subnet = "10.10.30.0/24"; Location = "D101"; Gateway = "10.10.30.1" }
+        ) | ConvertTo-Json -Depth 3 | Set-Content $labSubnetsFile -Encoding UTF8
+    }
 
     $script:RoleMap = @{
-        "IT Department"   = "Role-SuperAdmin"
-        "Administration"  = "Role-SuperAdmin"
-        "Faculty"         = "Role-Teacher"
-        "Students"        = "Role-Students"
-        "Finance"         = "Role-SuperAdmin"
-        "Human Resources" = "Role-SuperAdmin"
-        "Library"         = "Role-Teacher"
-        "Research"        = "Role-Teacher"
-        "Engineering"     = "Role-Teacher"
-        "Management"      = "Role-SuperAdmin"
+        "DOAS"           = "Role-Teacher"
+        "DOA"            = "Role-Teacher"
+        "DAME"           = "Role-Teacher"
+        "DOCE"           = "Role-Teacher"
+        "DOECE"          = "Role-Teacher"
+        "DOIE"           = "Role-Teacher"
+        "Administration" = "Role-SuperAdmin"
+        "IT"             = "Role-SuperAdmin"
     }
 
     # - Helper: Load labs from JSON -
@@ -247,12 +263,47 @@ Start-PodeServer -Threads $Threads {
     }
 
     # - Helper: Resolve target OU -
+    # Students: OU=Batch,OU=Program,OU=Students,OU=EMIS Users,DC=emis,DC=local
+    # Staff:    OU=Department,OU=Staff,OU=EMIS Users,DC=emis,DC=local
     function Get-UserOU {
-        param([string]$Department, [string]$Batch, [string]$Program)
+        param([string]$Department, [string]$Batch, [string]$Program, [string]$UserType)
         $base = "OU=EMIS Users,DC=emis,DC=local"
-        if ($Department -eq "Students" -and $Batch) { return "OU=$Batch,OU=Students,$base" }
-        if ($Department -eq "Faculty" -and $Program) { return "OU=$Program,OU=Faculty,$base" }
-        return "OU=$Department,$base"
+        if ($UserType -eq "student" -and $Program -and $Batch) {
+            return "OU=$Batch,OU=$Program,OU=Students,$base"
+        }
+        if ($Department) { return "OU=$Department,OU=Staff,$base" }
+        return $base
+    }
+
+    # - Helper: Parse roll number → batch, program, serial -
+    function Parse-RollNumber {
+        param([string]$RollNo)
+        if ($RollNo -match '^(\d{3})([A-Za-z]+-?[A-Za-z]*)(\d+)$') {
+            $batchNum = $Matches[1]
+            $prog = $Matches[2]
+            $serial = $Matches[3]
+            # Validate program
+            if ($prog -in @("BCE","BEI","BAR","BAE","BME","BCiE","BIE","BAS")) {
+                return @{ Batch = "Batch-20$batchNum"; Program = $prog; Serial = $serial; Valid = $true }
+            }
+        }
+        # Try MSc/PhD patterns
+        if ($RollNo -match '^(\d{3})(MSc-IIS|MSc-EQ|PhD-ME)(\d+)$') {
+            return @{ Batch = "Batch-20$($Matches[1])"; Program = $Matches[2]; Serial = $Matches[3]; Valid = $true }
+        }
+        return @{ Valid = $false }
+    }
+
+    # - Helper: Resolve lab from IP subnet -
+    function Get-LabFromIP {
+        param([string]$IP)
+        $labSubnetsFile = "C:\emis-api\lab-subnets.json"
+        if (-not (Test-Path $labSubnetsFile)) { return $null }
+        $labSubnets = @(Get-Content $labSubnetsFile -Raw -Encoding UTF8 | ConvertFrom-Json)
+        $ipSubnet = ($IP -replace '\.\d+$', '.0/24')
+        $match = $labSubnets | Where-Object { $_.Subnet -eq $ipSubnet }
+        if ($match) { return $match.Name }
+        return $null
     }
 
     # -
@@ -505,12 +556,13 @@ Start-PodeServer -Threads $Threads {
             $results = @($users | ForEach-Object {
                 $dn = $_.DistinguishedName
                 $ouMatch = [regex]::Match($dn, 'OU=(Batch-\d+)')
-                $progMatch = [regex]::Match($dn, 'OU=((?:Computer|Electronics|Civil|Electrical) Engineering)')
+                $progMatch = [regex]::Match($dn, 'OU=(BCE|BEI|BAR|BAE|BME|BCiE|BIE|BAS|MSc-IIS|MSc-EQ|PhD-ME)')
+                $deptMatch = [regex]::Match($dn, 'OU=(DOAS|DOA|DAME|DOCE|DOECE|DOIE|Administration|IT)')
                 @{
                     username    = $_.SamAccountName
                     displayName = $_.DisplayName
                     email       = $_.EmailAddress
-                    department  = $_.Department
+                    department  = if ($_.Department) { $_.Department } elseif ($deptMatch.Success) { $deptMatch.Groups[1].Value } else { $null }
                     title       = $_.Title
                     enabled     = $_.Enabled
                     created     = $_.WhenCreated.ToString("yyyy-MM-dd")
@@ -530,28 +582,63 @@ Start-PodeServer -Threads $Threads {
     }
 
     # - POST /api/v1/users -
+    # All fields must be provided explicitly by the caller
+    # Students: { "userType":"student", "firstName":"...", "lastName":"...", "username":"080BCE001", "email":"...", "batch":"Batch-2080", "program":"BCE", "department":"DOECE" }
+    # Staff:    { "userType":"staff", "firstName":"...", "lastName":"...", "username":"12345", "email":"...", "department":"DOECE" }
     Add-PodeRoute -Method Post -Path '/api/v1/users' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $body = $WebEvent.Data
 
-        $required = @("firstName", "lastName", "username", "department")
+        $userType = if ($body['userType']) { $body['userType'] } else { "staff" }
+
+        # Common required fields
+        $required = @("firstName", "lastName", "username", "email", "department")
         $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace($body[$_]) }
+
+        if ($userType -eq "student") {
+            # Students also require batch and program
+            if (-not $body['batch']) { $missing += "batch" }
+            if (-not $body['program']) { $missing += "program" }
+        }
+
         if ($missing) {
             Set-PodeResponseStatus -Code 400
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Missing: $($missing -join ', ')" }
             return
         }
-        if ($body.department -notin $script:ValidDepartments) {
-            Set-PodeResponseStatus -Code 400
-            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid department" }
-            return
-        }
 
-        $safeUsername = $body.username -replace '[^a-zA-Z0-9._-]', ''
-        if ($safeUsername -ne $body.username -or $safeUsername.Length -lt 2 -or $safeUsername.Length -gt 20) {
+        $safeUsername = $body['username'] -replace '[^a-zA-Z0-9._-]', ''
+        if ($safeUsername -ne $body['username'] -or $safeUsername.Length -lt 2 -or $safeUsername.Length -gt 20) {
             Set-PodeResponseStatus -Code 400
             Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Username: 2-20 chars, alphanumeric/dot/hyphen/underscore" }
             return
+        }
+
+        $department = $body['department']
+        if ($department -notin $script:ValidDepartments) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid department. Valid: $($script:ValidDepartments -join ', ')" }
+            return
+        }
+
+        $batch = $body['batch']; $program = $body['program']; $email = $body['email']
+
+        if ($userType -eq "student") {
+            if ($batch -notin $script:ValidBatches) {
+                Set-PodeResponseStatus -Code 400
+                Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid batch. Valid: $($script:ValidBatches -join ', ')" }
+                return
+            }
+            if ($program -notin $script:ValidPrograms) {
+                Set-PodeResponseStatus -Code 400
+                Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid program. Valid: $($script:ValidPrograms -join ', ')" }
+                return
+            }
+            $targetOU = Get-UserOU -UserType "student" -Program $program -Batch $batch
+            $role = "Role-Students"
+        } else {
+            $targetOU = Get-UserOU -UserType "staff" -Department $department
+            $role = if ($body['role']) { $body['role'] } elseif ($script:RoleMap.ContainsKey($department)) { $script:RoleMap[$department] } else { "Role-Teacher" }
         }
 
         try {
@@ -563,22 +650,31 @@ Start-PodeServer -Threads $Threads {
 
             $tempPass   = "Emis@" + (Get-Random -Minimum 100000 -Maximum 999999)
             $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
-            $targetOU   = Get-UserOU -Department $body.department -Batch $body.batch -Program $body.program
-            $role       = if ($body.role) { $body.role } elseif ($script:RoleMap.ContainsKey($body.department)) { $script:RoleMap[$body.department] } else { $null }
-            $email      = if ($body.email) { $body.email } else { "$safeUsername@emis.local" }
 
-            New-ADUser -SamAccountName $safeUsername -UserPrincipalName "$safeUsername@emis.local" `
-                -Name "$($body.firstName) $($body.lastName)" -GivenName $body.firstName -Surname $body.lastName `
-                -DisplayName "$($body.firstName) $($body.lastName)" -EmailAddress $email `
-                -Title $body.title -Department $body.department -Office "EMIS Campus" `
+            New-ADUser -SamAccountName $safeUsername -UserPrincipalName "$safeUsername@tcioe.edu.np" `
+                -Name "$($body['firstName']) $($body['lastName'])" -GivenName $body['firstName'] -Surname $body['lastName'] `
+                -DisplayName "$($body['firstName']) $($body['lastName'])" -EmailAddress $email `
+                -Title $body['title'] -Department $department -Office "TCIOE" `
                 -Path $targetOU -AccountPassword $securePass -ChangePasswordAtLogon $true -Enabled $true
 
             if ($role) { Add-ADGroupMember -Identity $role -Members $safeUsername }
 
+            # Set photo if provided (filename like 080BCE002.jpg)
+            $photoUrl = $null
+            if ($body['photo']) {
+                $safePhoto = $body['photo'] -replace '[^a-zA-Z0-9._-]', ''
+                $photoPath = Join-Path "C:\emis-api\photos" $safePhoto
+                if (Test-Path $photoPath) {
+                    $photoBytes = [IO.File]::ReadAllBytes($photoPath)
+                    Set-ADUser -Identity $safeUsername -Replace @{ thumbnailPhoto = $photoBytes }
+                    $photoUrl = "/api/v1/photos/$safePhoto"
+                }
+            }
+
             Write-PodeJsonResponse -StatusCode 201 -Value @{
-                message = "User created"; username = $safeUsername; email = $email
-                department = $body.department; batch = $body.batch; program = $body.program
-                role = $role; tempPassword = $tempPass; mustChange = $true
+                message = "User created"; username = $safeUsername; email = $email; userType = $userType
+                department = $department; batch = $batch; program = $program
+                role = $role; tempPassword = $tempPass; mustChange = $true; photo = $photoUrl
             }
         } catch {
             Set-PodeResponseStatus -Code 500
@@ -587,6 +683,7 @@ Start-PodeServer -Threads $Threads {
     }
 
     # - POST /api/v1/users/bulk -
+    # All fields explicit per user, same schema as POST /api/v1/users
     Add-PodeRoute -Method Post -Path '/api/v1/users/bulk' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $userList = $WebEvent.Data.users
@@ -605,9 +702,35 @@ Start-PodeServer -Threads $Threads {
         $results = @{ created = @(); skipped = @(); failed = @() }
 
         foreach ($u in $userList) {
-            $safe = $u.username -replace '[^a-zA-Z0-9._-]', ''
-            if ($safe.Length -lt 2) { $results.failed += @{ username = $u.username; reason = "Invalid username" }; continue }
-            if ($u.department -notin $script:ValidDepartments) { $results.failed += @{ username = $safe; reason = "Invalid department" }; continue }
+            # Convert PSObject to hashtable if needed
+            if ($u -isnot [hashtable]) {
+                $uh = @{}; $u.PSObject.Properties | ForEach-Object { $uh[$_.Name] = $_.Value }; $u = $uh
+            }
+            $userType = if ($u['userType']) { $u['userType'] } else { "staff" }
+
+            # Validate required fields
+            $required = @("firstName", "lastName", "username", "email", "department")
+            if ($userType -eq "student") { $required += @("batch", "program") }
+            $missing = $required | Where-Object { [string]::IsNullOrWhiteSpace($u[$_]) }
+            if ($missing) { $results.failed += @{ username = $u['username']; reason = "Missing: $($missing -join ', ')" }; continue }
+
+            $safe = $u['username'] -replace '[^a-zA-Z0-9._-]', ''
+            if ($safe.Length -lt 2) { $results.failed += @{ username = $u['username']; reason = "Invalid username" }; continue }
+
+            $department = $u['department']
+            if ($department -notin $script:ValidDepartments) { $results.failed += @{ username = $safe; reason = "Invalid department" }; continue }
+
+            $batch = $u['batch']; $program = $u['program']; $email = $u['email']
+
+            if ($userType -eq "student") {
+                if ($batch -notin $script:ValidBatches) { $results.failed += @{ username = $safe; reason = "Invalid batch" }; continue }
+                if ($program -notin $script:ValidPrograms) { $results.failed += @{ username = $safe; reason = "Invalid program" }; continue }
+                $targetOU = Get-UserOU -UserType "student" -Program $program -Batch $batch
+                $role = "Role-Students"
+            } else {
+                $targetOU = Get-UserOU -UserType "staff" -Department $department
+                $role = if ($u['role']) { $u['role'] } elseif ($script:RoleMap.ContainsKey($department)) { $script:RoleMap[$department] } else { "Role-Teacher" }
+            }
 
             try {
                 if (Get-ADUser -Filter "SamAccountName -eq '$safe'" -ErrorAction SilentlyContinue) {
@@ -616,18 +739,28 @@ Start-PodeServer -Threads $Threads {
 
                 $tempPass   = "Emis@" + (Get-Random -Minimum 100000 -Maximum 999999)
                 $securePass = ConvertTo-SecureString $tempPass -AsPlainText -Force
-                $targetOU   = Get-UserOU -Department $u.department -Batch $u.batch -Program $u.program
-                $role       = if ($u.role) { $u.role } elseif ($script:RoleMap.ContainsKey($u.department)) { $script:RoleMap[$u.department] } else { $null }
-                $email      = if ($u.email) { $u.email } else { "$safe@emis.local" }
 
-                New-ADUser -SamAccountName $safe -UserPrincipalName "$safe@emis.local" `
-                    -Name "$($u.firstName) $($u.lastName)" -GivenName $u.firstName -Surname $u.lastName `
-                    -DisplayName "$($u.firstName) $($u.lastName)" -EmailAddress $email `
-                    -Title $u.title -Department $u.department -Office "EMIS Campus" `
+                New-ADUser -SamAccountName $safe -UserPrincipalName "$safe@tcioe.edu.np" `
+                    -Name "$($u['firstName']) $($u['lastName'])" -GivenName $u['firstName'] -Surname $u['lastName'] `
+                    -DisplayName "$($u['firstName']) $($u['lastName'])" -EmailAddress $email `
+                    -Title $u['title'] -Department $department -Office "TCIOE" `
                     -Path $targetOU -AccountPassword $securePass -ChangePasswordAtLogon $true -Enabled $true
 
                 if ($role) { Add-ADGroupMember -Identity $role -Members $safe }
-                $results.created += @{ username = $safe; department = $u.department; batch = $u.batch; program = $u.program; tempPassword = $tempPass }
+
+                # Set photo if provided
+                $photoUrl = $null
+                if ($u['photo']) {
+                    $safePhoto = $u['photo'] -replace '[^a-zA-Z0-9._-]', ''
+                    $photoPath = Join-Path "C:\emis-api\photos" $safePhoto
+                    if (Test-Path $photoPath) {
+                        $photoBytes = [IO.File]::ReadAllBytes($photoPath)
+                        Set-ADUser -Identity $safe -Replace @{ thumbnailPhoto = $photoBytes }
+                        $photoUrl = "/api/v1/photos/$safePhoto"
+                    }
+                }
+
+                $results.created += @{ username = $safe; userType = $userType; department = $department; batch = $batch; program = $program; tempPassword = $tempPass; photo = $photoUrl }
             } catch {
                 $results.failed += @{ username = $safe; reason = $_.Exception.Message }
             }
@@ -664,18 +797,21 @@ Start-PodeServer -Threads $Threads {
     }
 
     # - DELETE /api/v1/users/batch/:batch -
+    # Searches ALL programs for the given batch
     Add-PodeRoute -Method Delete -Path '/api/v1/users/batch/:batch' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
         $batch = $WebEvent.Parameters['batch']
         if ($batch -notin $script:ValidBatches) {
             Set-PodeResponseStatus -Code 400
-            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid batch" }
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid batch. Valid: $($script:ValidBatches -join ', ')" }
             return
         }
         try {
-            $searchBase = "OU=$batch,OU=Students,OU=EMIS Users,DC=emis,DC=local"
+            $searchBase = "OU=Students,OU=EMIS Users,DC=emis,DC=local"
             $disabledOU = "OU=Disabled Accounts,DC=emis,DC=local"
-            $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf
+            # Search across all programs for this batch (OU=Batch-20XX,OU=Program,OU=Students,...)
+            $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf,DistinguishedName |
+                Where-Object { $_.DistinguishedName -match "OU=$batch," }
             $disabled = 0; $errors = @()
             foreach ($user in $users) {
                 try {
@@ -688,24 +824,25 @@ Start-PodeServer -Threads $Threads {
                     $disabled++
                 } catch { $errors += @{ username = $user.SamAccountName; reason = $_.Exception.Message } }
             }
-            Write-PodeJsonResponse -Value @{ message = "Batch removal complete"; batch = $batch; total = $users.Count; disabled = $disabled; errors = $errors }
+            Write-PodeJsonResponse -Value @{ message = "Batch removal complete"; batch = $batch; total = @($users).Count; disabled = $disabled; errors = $errors }
         } catch {
             Set-PodeResponseStatus -Code 500
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
     }
 
-    # - DELETE /api/v1/users/faculty/:program -
-    Add-PodeRoute -Method Delete -Path '/api/v1/users/faculty/:program' -ScriptBlock {
+    # - DELETE /api/v1/users/staff/department/:department -
+    # Renamed: was faculty/:program, now targets staff by department
+    Add-PodeRoute -Method Delete -Path '/api/v1/users/staff/department/:department' -ScriptBlock {
         if (-not (Assert-Role @("superadmin"))) { return }
-        $program = $WebEvent.Parameters['program']
-        if ($program -notin $script:ValidPrograms) {
+        $department = $WebEvent.Parameters['department']
+        if ($department -notin $script:ValidDepartments) {
             Set-PodeResponseStatus -Code 400
-            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid program" }
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Invalid department. Valid: $($script:ValidDepartments -join ', ')" }
             return
         }
         try {
-            $searchBase = "OU=$program,OU=Faculty,OU=EMIS Users,DC=emis,DC=local"
+            $searchBase = "OU=$department,OU=Staff,OU=EMIS Users,DC=emis,DC=local"
             $disabledOU = "OU=Disabled Accounts,DC=emis,DC=local"
             $users = Get-ADUser -SearchBase $searchBase -Filter * -Properties MemberOf
             $disabled = 0; $errors = @()
@@ -720,11 +857,79 @@ Start-PodeServer -Threads $Threads {
                     $disabled++
                 } catch { $errors += @{ username = $user.SamAccountName; reason = $_.Exception.Message } }
             }
-            Write-PodeJsonResponse -Value @{ message = "Faculty removal complete"; program = $program; total = $users.Count; disabled = $disabled; errors = $errors }
+            Write-PodeJsonResponse -Value @{ message = "Staff department removal complete"; department = $department; total = $users.Count; disabled = $disabled; errors = $errors }
         } catch {
             Set-PodeResponseStatus -Code 500
             Write-PodeJsonResponse -Value @{ error = "ServerError"; message = $_.Exception.Message }
         }
+    }
+
+    # -
+    #                    PHOTO MANAGEMENT
+    # -
+
+    # - POST /api/v1/photos/bulk - Bulk upload photos as base64 -
+    # Body: { "photos": [ { "filename": "080BCE002.jpg", "base64": "/9j/4AAQ..." }, ... ] }
+    Add-PodeRoute -Method Post -Path '/api/v1/photos/bulk' -ScriptBlock {
+        if (-not (Assert-Role @("superadmin"))) { return }
+        $body = $WebEvent.Data
+        $photoList = $body.photos
+        if (-not $photoList -or $photoList.Count -eq 0) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Body must contain 'photos' array" }
+            return
+        }
+        if ($photoList.Count -gt 500) {
+            Set-PodeResponseStatus -Code 400
+            Write-PodeJsonResponse -Value @{ error = "ValidationError"; message = "Max 500 photos per request" }
+            return
+        }
+
+        $photosDir = "C:\emis-api\photos"
+        if (-not (Test-Path $photosDir)) { New-Item -ItemType Directory -Path $photosDir -Force | Out-Null }
+
+        $saved = @(); $failed = @()
+        foreach ($p in $photoList) {
+            if ($p -isnot [hashtable]) {
+                $ph = @{}; $p.PSObject.Properties | ForEach-Object { $ph[$_.Name] = $_.Value }; $p = $ph
+            }
+            $filename = $p['filename']
+            $b64 = $p['base64']
+            if (-not $filename -or -not $b64) { $failed += @{ filename = $filename; reason = "Missing filename or base64" }; continue }
+            # Sanitize filename - only allow alphanumeric, dash, underscore, dot
+            $safeFile = $filename -replace '[^a-zA-Z0-9._-]', ''
+            if ($safeFile -notmatch '\.(jpg|jpeg|png)$') { $failed += @{ filename = $filename; reason = "Must be .jpg, .jpeg, or .png" }; continue }
+            try {
+                $bytes = [Convert]::FromBase64String($b64)
+                if ($bytes.Length -gt 1MB) { $failed += @{ filename = $safeFile; reason = "File too large (max 1MB)" }; continue }
+                [IO.File]::WriteAllBytes((Join-Path $photosDir $safeFile), $bytes)
+                $saved += @{ filename = $safeFile; size = $bytes.Length; url = "/api/v1/photos/$safeFile" }
+            } catch {
+                $failed += @{ filename = $safeFile; reason = $_.Exception.Message }
+            }
+        }
+
+        Write-PodeJsonResponse -Value @{
+            summary = @{ total = $photoList.Count; saved = $saved.Count; failed = $failed.Count }
+            saved = $saved; failed = $failed
+        }
+    }
+
+    # - GET /api/v1/photos/:filename - Serve a photo -
+    Add-PodeRoute -Method Get -Path '/api/v1/photos/:filename' -ScriptBlock {
+        $filename = $WebEvent.Parameters['filename']
+        $safeFile = $filename -replace '[^a-zA-Z0-9._-]', ''
+        $filePath = Join-Path "C:\emis-api\photos" $safeFile
+        if (-not (Test-Path $filePath)) {
+            Set-PodeResponseStatus -Code 404
+            Write-PodeJsonResponse -Value @{ error = "NotFound"; message = "Photo not found" }
+            return
+        }
+        $ext = [IO.Path]::GetExtension($safeFile).ToLower()
+        $contentType = switch ($ext) { '.jpg' { 'image/jpeg' } '.jpeg' { 'image/jpeg' } '.png' { 'image/png' } default { 'application/octet-stream' } }
+        Set-PodeHeader -Name 'Content-Type' -Value $contentType
+        Set-PodeHeader -Name 'Cache-Control' -Value 'public, max-age=86400'
+        Write-PodeFileResponse -Path $filePath -ContentType $contentType
     }
 
     # -
@@ -1056,9 +1261,10 @@ Start-PodeServer -Threads $Threads {
                 $raw = Get-Content $regFile -Raw -Encoding UTF8
                 if ($raw -and $raw.Trim().Length -gt 2) { $registry = @($raw | ConvertFrom-Json) }
             }
-            # Determine lab from subnet
+            # Determine lab from subnet (auto-detect)
             $subnet = ($ip -replace '\.\d+$', '.0/24')
-            $labName = if ($body['lab']) { $body['lab'] } else { "Auto-$($ip -replace '\.\d+$', '')" }
+            $labName = Get-LabFromIP -IP $ip
+            if (-not $labName) { $labName = if ($body['lab']) { $body['lab'] } else { "Unknown-$($ip -replace '\.\d+$', '')" } }
             # Update or add
             $existing = $registry | Where-Object { $_.Hostname -eq $hostname.ToUpper() }
             if ($existing) {
@@ -1393,7 +1599,11 @@ Start-PodeServer -Threads $Threads {
     Write-Host "   POST   /api/v1/users/{u}/reset"
     Write-Host "   DELETE /api/v1/users/{u}"
     Write-Host "   DELETE /api/v1/users/batch/{batch}"
-    Write-Host "   DELETE /api/v1/users/faculty/{program}"
+    Write-Host "   DELETE /api/v1/users/staff/department/{dept}"
+    Write-Host ""
+    Write-Host " Photo Endpoints:" -ForegroundColor Yellow
+    Write-Host "   POST   /api/v1/photos/bulk                (base64 JSON array)"
+    Write-Host "   GET    /api/v1/photos/{filename}"
     Write-Host ""
     Write-Host " Lab Endpoints:" -ForegroundColor Yellow
     Write-Host "   GET    /api/v1/labs"
